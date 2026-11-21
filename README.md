@@ -1,5 +1,7 @@
 # pi
 
+![Pi output pane](docs/pi.png)
+
 A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live output rendered in a side pane.
 
 ## What it does
@@ -31,6 +33,20 @@ Then reload plugins in Claude Code:
 
 ```
 /reload-plugins
+```
+
+## Look
+
+![With cc-skin-pro installed](docs/skin.png)
+
+The second screenshot is the pane with **cc-skin-pro** installed: tables, code fences and colours are drawn by the skin's markdown renderer. Without cc-skin-pro the pane falls back to Claude Code's built-in markdown — text still shows, but tables are not drawn.
+
+Install cc-skin-pro first, then reload:
+
+```bash
+claude plugin marketplace add linxuan-sys/cc-skin-pro
+claude plugin install skins@cc-skin-pro
+claude plugin install cc-band-pro@cc-skin-pro   # optional: the powerline bar with the Pi block
 ```
 
 ## How it works
@@ -70,6 +86,10 @@ Claude ──acpx──> pi-acp ──> Pi
   titles (not tool output, not thinking).
 - Only one Pi session per conversation, and one workspace at a time.
 - The pane keeps entries in memory; the plugin's only writes are the bindings file, changed by `/pi-unbind` and `/pi:stop`.
+- A single message over 3 MiB (a base64 screenshot, say) is skipped in byte space and shown as one placeholder line; the rest keeps flowing.
+- `/pi-unbind` takes no file lock: operate on one conversation at a time.
+- One process with several conversations: the pane follows the last bound session.
+- Tables are drawn by the skins plugin; without it the pane falls back to plain markdown.
 
 ---
 
@@ -108,6 +128,18 @@ claude plugin install pi@cc-pi-team
 /reload-plugins
 ```
 
+## 外观
+
+第二张图是装了 **cc-skin-pro** 的效果：表格、代码块、配色都交给皮肤的 markdown 渲染器。没装 cc-skin-pro 时，面板退回 Claude Code 内置的 markdown——文字照常显示，但**表格不画**。
+
+先装 cc-skin-pro，再重载插件：
+
+```bash
+claude plugin marketplace add linxuan-sys/cc-skin-pro
+claude plugin install skins@cc-skin-pro
+claude plugin install cc-band-pro@cc-skin-pro   # 可选：带 Pi 块的 powerline 状态栏
+```
+
 ## 工作原理
 
 ```
@@ -144,4 +176,8 @@ Claude ──acpx──> pi-acp ──> Pi
   （不显示工具输出，也不显示思考过程）。
 - 一个对话只绑一条 Pi 会话；同一时间只支持一个工作区。
 - 面板内容全部在内存里；插件唯一的写盘是 `/pi-unbind` 和 `/pi:stop` 改绑定表。
+- 单条消息超过 3 MiB（比如 base64 截图）会在字节空间里跳过，只显示一行"超大消息已跳过"，后续内容照常。
+- `/pi-unbind` 不带文件锁：同一时间只操作一个对话。
+- 一个进程多个对话时，面板跟随最后一个绑定的会话。
+- 表格由 skins 插件渲染；没有 skins 时退回普通 markdown。
 - `/pi-unbind` 不带文件锁，和 `/pi:start`、`/pi:stop` 并发时理论上可能互相覆盖；同一时间只操作一个对话即可避免。

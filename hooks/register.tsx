@@ -86,10 +86,54 @@ function parseEntries(raw: string, base: number): Entry[] {
       const text = b.text.trim()
       if (!text) return
       if (m.role === 'assistant') out.push({ key, kind: 'text', text })
-      else if (m.role === 'user' && text.startsWith('【角色】')) out.push({ key, kind: 'task', text })
+      else if (m.role === 'user') out.push({ key, kind: 'task', text })
     })
   }
   return out
+}
+
+
+// 手工 base64 解码，避免依赖运行时是否提供 atob/Buffer
+function decodeBase64(s: string): Uint8Array {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  const clean = s.replace(/=+$/, '')
+  const out = new Uint8Array(Math.floor((clean.length * 3) / 4))
+  let buf = 0
+  let bits = 0
+  let o = 0
+  for (let i = 0; i < clean.length; i++) {
+    const v = chars.indexOf(clean[i])
+    if (v < 0) continue
+    buf = (buf << 6) | v
+    bits += 6
+    if (bits >= 8) {
+      bits -= 8
+      out[o++] = (buf >> bits) & 0xff
+    }
+  }
+  return out.subarray(0, o)
+}
+
+// 在字节空间里跳过一条超长行，返回下一个换行之后的字节位置；不支持字节读则返回 from
+async function skipOversizeLine($: any, target: string, from: number, to: number): Promise<number> {
+  let at = from
+  while (at < to) {
+    const len = Math.min(MAX_READ, to - at)
+    let bytes: Uint8Array | null = null
+    try {
+      const res = await $.fs.read(target, { offset: at, length: len, as: 'bytes' })
+      const b64 = typeof res === 'string' ? res : res?.base64
+      if (typeof b64 === 'string') bytes = decodeBase64(b64)
+    } catch {
+      return from
+    }
+    if (bytes === null) return from
+    const nl = bytes.indexOf(0x0a)
+    if (nl >= 0) return at + nl + 1
+    at += bytes.length
+    if (bytes.length < len) break
+  }
+  return to
 }
 
 async function boundPath($: any): Promise<string> {
@@ -139,9 +183,17 @@ async function consume($: any, target: string, from: number, to: number): Promis
     const text = await $.fs.read(target, { offset: at, length: len })
     const cut = text.lastIndexOf('\n')
     if (cut < 0) {
-      // 整块没有换行：单行超过 MAX_READ。按字节跳会落在字符中间造成漂移，
-      // 所以宁可不前进（面板停更）也不破坏位置；3 MiB 的单行极少见。
-      break
+      // 整块没有换行：单行超过 MAX_READ。在字节空间找到下一行的开头再继续，
+      // 这样既不漂移，也不会让面板永久停更。
+      if (len === MAX_READ) {
+        const next = await skipOversizeLine($, target, at, to)
+        if (next > at) {
+          at = next
+          entries.push({ key: `skip:${at}`, kind: 'tool', text: `${TOOL}超大消息已跳过` })
+          continue
+        }
+      }
+      break // 只是还没写完，等下次
     }
     const body = text.slice(0, cut + 1)
     for (const e of parseEntries(body, at)) {
