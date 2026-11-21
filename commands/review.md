@@ -13,8 +13,6 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 
 ## 0. 准备仓库与分支
 
-`/pi:review` 可以单独跑，不依赖 `/pi:start`，所以 git 这一步全部在这里做完：
-
 1. **不是 git 仓库** → `git init -b pi/team`（默认分支就叫 `pi/team`）→ `git add -A`（排除 `.pi-*`）→ `git commit -m "baseline: before pi review"`。
 2. **已经是 git 仓库** → 有 `pi/team` 就 `git switch pi/team`；没有就 `git switch -c pi/team` 新建。
 3. **记审查起点** → `git rev-parse HEAD > .pi-review-base`。
@@ -125,9 +123,9 @@ echo "RUNNING=$RUNNING"
 ```
 
 - `NO_PLUGIN` → 插件没装或改名了（`pi@cc-pi-team` 查不到），停。
-- **`BOUND_IDLE:<id>`** → 直接进第 4 节，用这条会话启动审查。
-- **`BOUND_RUNNING:<id>`** → 先跑第 5 节等待，它退出后再进第 4 节启动审查。
-- **`RUNNING` 非空** → 采用这条会话：写 `.pi-session-id`，找到 cwd 匹配的会话文件先跑 4.2 绑定（面板能看到），再等它退出、进第 4 节启动审查：
+- **`BOUND_IDLE:<id>`** → 直接进第 4 节的「启动」，用这条会话启动审查。
+- **`BOUND_RUNNING:<id>`** → 先等它退出（第 5 节「等 Pi 结束」），再进第 4 节的「启动」启动审查。
+- **`RUNNING` 非空** → 采用这条会话：写 `.pi-session-id`，找到 cwd 匹配的会话文件先做「写绑定」（面板能看到），再等它退出（第 5 节），最后进第 4 节的「启动」启动审查：
   ```bash
   SCAN=$(python3 -I - "$RUNNING" "$PWD_NOW" <<'PY'
 import glob, json, os, sys
@@ -151,14 +149,15 @@ PY
   echo "$HID" > .pi-session-id
   ```
 - **`RUNNING` 为空** → 用 `AskUserQuestion` 问「这个工作区没有正在跑的 Pi，要新开一个吗？」：
-  1. **是，新开一个 Pi** → `ID=$(python3 -I -c "import uuid;print(uuid.uuid4())")`，写 `.pi-session-id`，进第 4 节。
-  2. **否，用已有对话** → 执行 `/pi:connect` 的流程（列该工作区及子目录的 Pi 会话，用户回编号，写绑定）；绑定后取会话文件首行的 header id 写进 `.pi-session-id`，再进第 4 节启动审查。
+  1. **是，新开一个 Pi** → `ID=$(python3 -I -c "import uuid;print(uuid.uuid4())")`，写 `.pi-session-id`，进第 4 节的「启动」。
+  2. **否，用已有对话** → 执行 `/pi:connect` 的流程（列该工作区及子目录的 Pi 会话，用户回编号，写绑定）；绑定后取会话文件首行的 header id 写进 `.pi-session-id`，再进第 4 节的「启动」启动审查。
 
 ## 4. 启动并绑定
 
 进入本节前必须已经拿到第 2.1 节的用户明确同意；没有同意就停，不要启动。
+新开会话：先「启动」再「写绑定」；已有会话在跑：先「写绑定」，等它结束，再「启动」。
 
-### 4.1 启动
+### 启动
 
 ```bash
 set -eu
@@ -221,9 +220,9 @@ fi
 echo "FILE=$FILE"
 ```
 
-### 4.2 写绑定
+### 写绑定
 
-`FILE` 来自 4.1，或第 3 节直接绑定时找到的会话文件；`LAUNCHED` 新开 Pi 填 1，复用已有 Pi 填 0。
+`FILE` 来自「启动」，或第 3 节直接绑定时找到的会话文件；`LAUNCHED` 新开 Pi 填 1，复用已有 Pi 填 0。
 
 ```bash
 set -eu
