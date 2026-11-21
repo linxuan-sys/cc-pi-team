@@ -1,7 +1,7 @@
 ---
 description: Pi team mode: plan, delegate coding to Pi, review and commit
 argument-hint: [需求描述]
-allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(mkdir *) Read Grep Glob Write Edit
+allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(mkdir *) Read Grep Glob Write Edit
 disable-model-invocation: true
 ---
 

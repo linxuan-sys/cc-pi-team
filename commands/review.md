@@ -1,7 +1,7 @@
 ---
 description: Review code with Pi (read-only), fix and re-review until it passes
 argument-hint: [审查目标，可空]
-allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Read Grep Glob Write Edit
+allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Read Grep Glob Write Edit
 disable-model-invocation: true
 ---
 
@@ -21,15 +21,15 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git add -A -- . ':(exclude).pi-*'
   git commit -qm "baseline: before pi review" || true
 fi
-git rev-parse HEAD > .pi-review-base   # 记下审查起点
+git rev-parse HEAD > .pi-review-base   # 记下审查起点，后面按它定范围
 ```
 
 审查**不切换分支**：在用户当前的分支上审，范围只算 `git diff HEAD`。切到 `pi/team` 会把两条分支的差异全混进来，审错对象。
 
 ## 1. 确定范围
 
-- 有 git 且相对 HEAD 有改动（含已暂存）→ 审 `git diff HEAD`
-- 有 git 且 `git diff HEAD` 为空 → 审最近一次提交 `git show HEAD`
+- 有 git 且相对起点有改动（含已暂存）→ `BASE=$(cat .pi-review-base 2>/dev/null); [ -n "$BASE" ] || BASE=HEAD`，审 `git diff "$BASE"`
+- 有 git 但 `git diff "$BASE"` 为空 → 审最近一次提交 `git show "$BASE"`
 - 不是 git 仓库 → 审整个目录
 
 ## 2. 确保会话并绑定

@@ -1,7 +1,7 @@
 ---
 description: Exit Pi team mode, unbind and resume normal work
 argument-hint:
-allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *)
+allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *)
 disable-model-invocation: true
 ---
 
@@ -13,7 +13,7 @@ ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (
 F="$ROOT/pi-bindings.json"
 SID="${CLAUDE_CODE_SESSION_ID:-}"
 
-# 1) 读出本会话绑定的 Pi 会话文件与它的 Pi id
+# 1) 读出绑定、Pi id、以及这条会话自己的工作区（会话文件首行带 cwd）
 OUT=$(python3 -I - "$F" "$SID" <<'PY'
 import json, os, pathlib, sys
 p = pathlib.Path(sys.argv[1]); sid = sys.argv[2]
@@ -25,18 +25,23 @@ if p.exists():
         data = {}
 sf = data.get(sid, '')
 pi_id = ''
+cwd = ''
 if sf:
     try:
         with open(sf, encoding='utf-8') as fh:
-            pi_id = json.loads(fh.readline()).get('id', '')
+            head = json.loads(fh.readline())
+        pi_id = head.get('id', '')
+        cwd = head.get('cwd', '')
     except Exception:
         pass
 print(sf)
 print(pi_id)
+print(cwd)
 PY
 )
 SESSION_FILE=$(printf '%s\n' "$OUT" | sed -n 1p)
 PI_ID=$(printf '%s\n' "$OUT" | sed -n 2p)
+WORKSPACE=$(printf '%s\n' "$OUT" | sed -n 3p)
 
 if [ -z "$SESSION_FILE" ]; then
   echo "NOT_BOUND"
@@ -44,30 +49,14 @@ if [ -z "$SESSION_FILE" ]; then
 fi
 
 # 2) 先取消还在跑的任务：到这条 Pi 会话自己的目录里去取消
-WORKSPACE=$(python3 -I - "$SESSION_FILE" <<'PY'
-import glob, json, os, sys
-target = os.path.basename(sys.argv[1])
-for f in glob.glob(os.path.expanduser('~/.acpx/sessions/*.json')):
-    try:
-        with open(f, encoding='utf-8') as fh:
-            d = json.load(fh)
-    except Exception:
-        continue
-    sf = os.path.basename(d.get('sessionFile', ''))
-    if sf == target:
-        print(d.get('cwd', ''))
-        break
-PY
-)
 if [ -n "$WORKSPACE" ] && [ -d "$WORKSPACE" ]; then
   ( cd "$WORKSPACE" && acpx pi cancel >/dev/null 2>&1 || true )
 fi
 
-# 3) 解绑（带锁，同目录临时文件，mv 是原子替换）
+# 3) 解绑：jq 与 mv 都在同一把锁里，避免并发覆盖
 tmp=$(mktemp -p "$(dirname "$F")")
 trap 'rm -f "$tmp"' EXIT
-flock "$ROOT/.pi-bindings.lock" jq --arg sid "$SID" 'del(.[$sid])' "$F" > "$tmp"
-mv "$tmp" "$F"
+flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" "$4" "$2" > "$3" && mv "$3" "$2"' _ "$SID" "$F" "$tmp" 'del(.[$sid])'
 
 echo "UNBOUND"
 echo "SESSION_FILE=$SESSION_FILE"

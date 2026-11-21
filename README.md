@@ -47,7 +47,7 @@ Claude ──acpx──> pi-acp ──> Pi
 
 - The bindings file `<plugin>/pi-bindings.json` maps one Claude Code session id
   to one Pi session file. One conversation binds exactly one Pi session.
-- Runtime files `.pi-task.txt`, `.pi-events.jsonl` and `.pi-dirty-before.txt` are
+- Runtime files `.pi-task.txt`, `.pi-events.jsonl`, `.pi-dirty-before.txt` and `.pi-review-base` are
   created in the working directory of each dispatch and are safe to delete.
 
 ## Layout
@@ -69,7 +69,7 @@ Claude ──acpx──> pi-acp ──> Pi
 - The pane shows the task Claude sent, Pi's assistant text, and Pi's tool call
   titles (not tool output, not thinking).
 - Only one Pi session per conversation, and one workspace at a time.
-- The pane keeps entries in memory; nothing is written to disk by the plugin.
+- The pane keeps entries in memory; the plugin's only writes are the bindings file, changed by `/pi-unbind` and `/pi:stop`.
 
 ---
 
@@ -122,7 +122,7 @@ Claude ──acpx──> pi-acp ──> Pi
 
 - 绑定表 `<plugin>/pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一个 Pi 会话文件」。一个对话只绑一条 Pi 会话。
-- 每次派单会在工作区生成 `.pi-task.txt`、`.pi-events.jsonl`、`.pi-dirty-before.txt`，都是临时文件，可随时删。
+- 每次派单会在工作区生成 `.pi-task.txt`、`.pi-events.jsonl`、`.pi-dirty-before.txt`、`.pi-review-base`，都是临时文件，可随时删。
 
 ## 目录结构
 
@@ -144,3 +144,4 @@ Claude ──acpx──> pi-acp ──> Pi
   （不显示工具输出，也不显示思考过程）。
 - 一个对话只绑一条 Pi 会话；同一时间只支持一个工作区。
 - 面板内容全部在内存里；插件唯一的写盘是 `/pi-unbind` 和 `/pi:stop` 改绑定表。
+- `/pi-unbind` 不带文件锁，和 `/pi:start`、`/pi:stop` 并发时理论上可能互相覆盖；同一时间只操作一个对话即可避免。

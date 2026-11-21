@@ -2,13 +2,12 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 const PANE = 'pi-view'
-const MAX_READ = 1024 * 1024 // 每次最多读 1 MiB，避开引擎 4 MiB 上限
+const MAX_READ = 3 * 1024 * 1024 // 每次最多读 3 MiB，避开引擎 4 MiB 上限
 const MAX_KEEP = 5000
 const SEP = '\u0001'
 const TOOL = '⚙ '
-const MARK = '%%CLAUDE%%'
 // 工具命令里不显示控制字符/ANSI 转义
-const CTRL = /[\u0000-\u001f\u007f-\u009f]|\u001b\[[0-9;]*[A-Za-z]/g
+const CTRL = /\u001b\[[0-9;]*[A-Za-z]|[\u0000-\u001f\u007f-\u009f]/g
 
 type Kind = 'task' | 'tool' | 'text'
 type Entry = { key: string; kind: Kind; text: string }
@@ -26,7 +25,7 @@ async function bindingsFile($: any): Promise<string> {
 
 // atom 每项编码为 `kind␁key␁text`，类型不再靠正文前缀猜
 const lines = atom({ plugin: 'pi', key: 'lines' } as const, [] as string[], {
-  shape: 'lines-1',
+  shape: 'lines-2',
 })
 
 let shownPath = ''
@@ -34,13 +33,27 @@ let primed = false
 let lastSize = -1
 let lastMtime = -1
 let running = false
+let skinsOff = false
 let stopTick: (() => void) | null = null
 let entries: Entry[] = []
 const seen = new Set<string>()
 
+// UTF-8 字节数（代理对算 4 字节），不依赖 TextEncoder
 function byteLen(text: string): number {
-  const enc = (globalThis as any).TextEncoder
-  return enc === undefined ? text.length : new enc().encode(text).length
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (c < 0x80) n += 1
+    else if (c < 0x800) n += 2
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        n += 4
+        i++
+      } else n += 3 // 孤立高代理会被编成 U+FFFD
+    } else n += 3
+  }
+  return n
 }
 
 function parseEntries(raw: string, base: number): Entry[] {
@@ -125,7 +138,11 @@ async function consume($: any, target: string, from: number, to: number): Promis
     const len = Math.min(MAX_READ, to - at)
     const text = await $.fs.read(target, { offset: at, length: len })
     const cut = text.lastIndexOf('\n')
-    if (cut < 0) break // 还没有完整的一行，等下次
+    if (cut < 0) {
+      // 整块没有换行：单行超过 MAX_READ。按字节跳会落在字符中间造成漂移，
+      // 所以宁可不前进（面板停更）也不破坏位置；3 MiB 的单行极少见。
+      break
+    }
     const body = text.slice(0, cut + 1)
     for (const e of parseEntries(body, at)) {
       if (!seen.has(e.key)) {
@@ -159,7 +176,7 @@ async function poll($: any) {
     }
     const st = await $.fs.stat(target)
     const mtime = (st as any).mtimeMs ?? 0
-    if (st.size < lastSize) reset() // 文件被截断/重写
+    if (st.size < lastSize || (st.size === lastSize && mtime !== lastMtime)) reset() // 截断或等长重写
 
     if (!primed) {
       lastSize = await consume($, target, 0, st.size)
@@ -208,6 +225,7 @@ export const register: Register = on => {
       description: 'Unbind this conversation from Pi',
       immediate: true,
     })
+    skinsOff = false
     startTick($)
     return next(e)
   })
@@ -255,47 +273,80 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Markdown } = $.ui.resolve(e)
-    // 先 read：引擎靠这次读取把面板订阅到 atom 上
-    const raw = await read($, lines)
-    if (!shownPath)
+    try {
+      return await drawPane($, e)
+    } catch (error: unknown) {
+      // 渲染失败也要有东西显示，绝不留白；先 read 保证这次绘制订阅到 atom
+      await read($, lines).catch(() => undefined)
+      const { Box, Text } = $.ui.resolve(e)
+      const why = error instanceof Error ? error.message : String(error)
       return (
         <Box flexDirection="column">
-          <Text dimColor>Not bound to a Pi session</Text>
-          <Text dimColor>Use /pi:start to begin team mode</Text>
-          <Text dimColor>Use /pi:review to review code</Text>
+          <Text dimColor>{`Pi 面板渲染失败：${why}`}</Text>
         </Box>
       )
-    const list = raw.map(s => {
-      const first = s.indexOf(SEP)
-      const second = s.indexOf(SEP, first + 1)
-      return {
-        kind: s.slice(0, first) as Kind,
-        key: s.slice(first + 1, second),
-        text: s.slice(second + 1),
-      }
-    })
+    }
+  })
+}
+
+async function drawPane($: any, e: any) {
+  const { Box, Text, Markdown } = $.ui.resolve(e)
+  const raw = await read($, lines)
+  if (!shownPath)
     return (
       <Box flexDirection="column">
-        <Text dimColor>{`Pi · ${shownPath.split('/').pop()}`}</Text>
-        {list.length === 0 ? (
-          <Text dimColor>等待 Pi 输出…</Text>
-        ) : (
-          list.map(item =>
-            item.kind === 'task' ? (
-              <Box key={item.key} borderStyle="round" borderColor="cyan" paddingX={1}>
-                <Text color="cyan">{'我 → Pi: ' + item.text}</Text>
-              </Box>
-            ) : item.kind === 'tool' ? (
-              <Text key={item.key} dimColor>
-                {item.text}
-              </Text>
-            ) : (
-              <Markdown key={item.key} text={item.text} />
-            ),
-          )
-        )}
+        <Text dimColor>Not bound to a Pi session</Text>
+        <Text dimColor>Use /pi:start to begin team mode</Text>
+        <Text dimColor>Use /pi:review to review code</Text>
       </Box>
     )
+  const list = raw.map(s => {
+    const first = s.indexOf(SEP)
+    const second = s.indexOf(SEP, first + 1)
+    return {
+      kind: s.slice(0, first) as Kind,
+      key: s.slice(first + 1, second),
+      text: s.slice(second + 1),
+    }
   })
+  // 表格只有 skin 的渲染器会画；拿不到就退回内置 Markdown
+  const columns = Math.max(20, Number(e.props?.bodyColumns ?? e.viewport?.columns ?? 80) - 2)
+  const surface = (e.surface ?? 'terminal') as 'terminal' | 'desktop' | 'vscode' | 'mobile'
+  const drawn = await Promise.all(
+    list.map(async item => {
+      if (item.kind !== 'text' || skinsOff) return null
+      try {
+        return (await ($ as any).skins.markdown({ surface, text: item.text, columns })) ?? null
+      } catch {
+        skinsOff = true // 没有 skins 桥：本次会话不再尝试
+        return null
+      }
+    }),
+  )
+  return (
+    <Box flexDirection="column">
+      <Text dimColor>{`Pi · ${shownPath.split('/').pop()}`}</Text>
+      {list.length === 0 ? (
+        <Text dimColor>等待 Pi 输出…</Text>
+      ) : (
+        list.map((item, i) =>
+          item.kind === 'task' ? (
+            <Box key={item.key} borderStyle="round" borderColor="cyan" paddingX={1}>
+              <Text color="cyan">{item.text}</Text>
+            </Box>
+          ) : item.kind === 'tool' ? (
+            <Text key={item.key} dimColor>
+              {item.text}
+            </Text>
+          ) : drawn[i] !== null ? (
+            <Box key={item.key} flexDirection="column">
+              {drawn[i]}
+            </Box>
+          ) : (
+            <Markdown key={item.key} text={item.text} />
+          ),
+        )
+      )}
+    </Box>
+  )
 }
