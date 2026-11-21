@@ -5,3 +5,9 @@ declare module 'claude-code' {
     'pi': { lines: Shaped<PiLine[]> }
   }
 }
+
+declare module 'claude-code' {
+  interface EngineInterface {
+    pi: { open: () => Promise<void> }
+  }
+}

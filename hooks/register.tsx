@@ -193,6 +193,13 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // 别的插件通过 $.pi.open() 打开这个面板
+  on('engine.create', async ($, e, next) => ({ ...(await next(e)), pi: { open: async () => undefined } }))
+
+  on('pi.open', async $ => {
+    await $.ui.open({ id: PANE, title: 'Pi Output' })
+  })
+
   on('session.end', async ($, e, next) => {
     if (stopTick) {
       stopTick()
