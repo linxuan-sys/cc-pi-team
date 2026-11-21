@@ -30,7 +30,8 @@ for f in glob.glob(os.path.expanduser('~/.pi/agent/sessions/*/*.jsonl')):
             head = json.loads(fh.readline())
     except Exception:
         continue
-    if os.path.abspath(head.get('cwd', '')) != want:
+    cwd = os.path.abspath(head.get('cwd', ''))
+    if cwd != want:
         continue
     last = ''
     try:
@@ -47,22 +48,54 @@ for f in glob.glob(os.path.expanduser('~/.pi/agent/sessions/*/*.jsonl')):
                         last = t
     except Exception:
         pass
-    rows.append((head.get('timestamp', ''), last.replace('\n', ' ')[:60], f))
+    rows.append((head.get('timestamp', ''), '', last.replace('\n', ' ')[:60], f))
+
+# 本目录没有会话：去子目录里找，并标出子目录
+if not rows:
+    for f in glob.glob(os.path.expanduser('~/.pi/agent/sessions/*/*.jsonl')):
+        try:
+            with open(f, encoding='utf-8') as fh:
+                head = json.loads(fh.readline())
+        except Exception:
+            continue
+        cwd = os.path.abspath(head.get('cwd', ''))
+        if not cwd.startswith(want + os.sep):
+            continue
+        rel = os.path.relpath(cwd, want) + '/'
+        last = ''
+        try:
+            with open(f, encoding='utf-8') as fh:
+                for line in fh:
+                    try:
+                        d = json.loads(line)
+                    except Exception:
+                        continue
+                    m = d.get('message') or {}
+                    if d.get('type') == 'message' and m.get('role') == 'user' and isinstance(m.get('content'), list):
+                        t = ' '.join(b.get('text', '') for b in m['content'] if isinstance(b, dict) and b.get('type') == 'text').strip()
+                        if t:
+                            last = t
+        except Exception:
+            pass
+        rows.append((head.get('timestamp', ''), rel, last.replace('\n', ' ')[:60], f))
+
 rows.sort(reverse=True)
 if not rows:
     print('NO_SESSION')
-for i, (ts, last, path) in enumerate(rows, 1):
-    print(f'{i}\t{ts}\t{last}\t{path}')
+for i, (ts, rel, last, path) in enumerate(rows, 1):
+    print(f'{i}\t{ts}\t{rel}\t{last}\t{path}')
 PY
 ```
 
-- `NO_SESSION` → 回"这个目录下没有 Pi 会话，可以先在这里 `/pi:start` 建一条"，结束
+- `NO_SESSION` → 回"这个目录和它的子目录下都没有 Pi 会话，可以先在这里 `/pi:start` 建一条"，结束
 - 有结果 → 列成清单：
 
 ```
 1. 11-21 14:50 · 最后一条问题摘要
-2. 11-20 22:13 · 最后一条问题摘要
+2. 11-21 12:03 · [lua/] 最后一条问题摘要     ← 子目录里的会话会带前缀
 ```
+
+**子目录前缀**（`[lua/]` 这种）只在该目录本身没有会话、去子目录里找时才出现；本目录直接命中时不加。
 
 然后只问一句：**"回个编号。"**
 
