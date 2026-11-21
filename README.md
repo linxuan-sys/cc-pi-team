@@ -15,10 +15,10 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 
 ## Requirements
 
-- [Pi](https://github.com/badlogic/pi-mono) (`pi` on `PATH`)
-- `pi-acp` — ACP adapter for Pi
-- `acpx` — headless ACP client
-- `jq` and `python3` — used by `/pi:start`, `/pi:review` and `/pi:stop` to read and edit the bindings file
+- [Pi](https://github.com/badlogic/pi-mono) (`pi` on `PATH`) — dispatched headless (`pi -p --mode json`)
+- `jq` and `python3` — used by `/pi:start`, `/pi:review`, `/pi:connect` and `/pi:stop` to read and edit the bindings file
+
+No ACP adapter and no `acpx`: the plugin drives Pi's own headless mode and reads its session file.
 
 ## Install
 
@@ -53,18 +53,18 @@ claude plugin install cc-band-pro@cc-skin-pro   # optional: the powerline bar wi
 ## How it works
 
 ```
-Claude ──acpx──> pi-acp ──> Pi
-                    │
-                    └── writes ~/.pi/agent/sessions/<cwd>/<id>.jsonl
-                                      │
-                          this plugin polls it every second
-                                      │
-                                      └── renders the pane
+Claude ──(pi -p --mode json --session-id …)──> Pi
+                                                │
+                                                └── writes ~/.pi/agent/sessions/<cwd>/<id>.jsonl
+                                                                  │
+                                                      this plugin polls it every second
+                                                                  │
+                                                                  └── renders the pane
 ```
 
 - The bindings file `<plugin>/pi-bindings.json` maps one Claude Code session id
   to one Pi session file. One conversation binds exactly one Pi session.
-- Runtime files `.pi-task.txt`, `.pi-events.jsonl`, `.pi-dirty-before.txt` and `.pi-review-base` are
+- Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl`, `.pi-session-id` and `.pi-review-base` are
   created in the working directory of each dispatch and are safe to delete.
 
 ## Layout
@@ -110,10 +110,10 @@ Claude ──acpx──> pi-acp ──> Pi
 
 ## 依赖
 
-- [Pi](https://github.com/badlogic/pi-mono)（`pi` 在 `PATH` 里）
-- `pi-acp` —— Pi 的 ACP 适配器
-- `acpx` —— 无界面 ACP 客户端
-- `jq` 和 `python3` —— `/pi:start`、`/pi:review`、`/pi:stop` 读写绑定表时用
+- [Pi](https://github.com/badlogic/pi-mono)（`pi` 在 `PATH` 里）—— 用无头模式派单（`pi -p --mode json`）
+- `jq` 和 `python3` —— `/pi:start`、`/pi:review`、`/pi:connect`、`/pi:stop` 读写绑定表时用
+
+不需要 ACP 适配器，也不需要 `acpx`：插件直接驱动 Pi 的无头模式，再读它的会话文件。
 
 ## 安装
 
@@ -146,18 +146,18 @@ claude plugin install cc-band-pro@cc-skin-pro   # 可选：带 Pi 块的 powerli
 ## 工作原理
 
 ```
-Claude ──acpx──> pi-acp ──> Pi
-                    │
-                    └── 写 ~/.pi/agent/sessions/<工作区>/<id>.jsonl
-                                      │
-                          插件每秒读一次这个文件
-                                      │
-                                      └── 渲染到侧边栏
+Claude ──(pi -p --mode json --session-id …)──> Pi
+                                                │
+                                                └── 写 ~/.pi/agent/sessions/<工作区>/<id>.jsonl
+                                                                  │
+                                                      插件每秒读一次这个文件
+                                                                  │
+                                                                  └── 渲染到侧边栏
 ```
 
 - 绑定表 `<plugin>/pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一个 Pi 会话文件」。一个对话只绑一条 Pi 会话。
-- 每次派单会在工作区生成 `.pi-task.txt`、`.pi-events.jsonl`、`.pi-dirty-before.txt`、`.pi-review-base`，都是临时文件，可随时删。
+- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-session-id`、`.pi-review-base`，都是临时文件，可随时删。
 
 ## 目录结构
 
