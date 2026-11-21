@@ -1,0 +1,12 @@
+{
+  "name": "pi-market",
+  "description": "Pi 团队模式：斜杠命令 + 侧边栏实时输出",
+  "owner": { "name": "LinXuan" },
+  "plugins": [
+    {
+      "name": "pi",
+      "source": "./",
+      "description": "Pi 团队模式：Claude 领航，Pi 掌舵；侧边栏实时显示 Pi 输出"
+    }
+  ]
+}

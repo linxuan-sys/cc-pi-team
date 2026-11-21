@@ -1,0 +1,6 @@
+{
+  "name": "pi",
+  "version": "0.1.0",
+  "description": "Pi 团队模式：斜杠命令 + 侧边栏实时输出",
+  "types": "./types/index.d.ts"
+}
