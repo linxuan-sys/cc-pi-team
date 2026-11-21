@@ -62,7 +62,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
                                                                   └── renders the pane
 ```
 
-- The bindings file `<plugin>/pi-bindings.json` maps one Claude Code session id
+- The bindings file `~/.claude/pi-bindings.json` maps one Claude Code session id
   to one Pi session file. One conversation binds exactly one Pi session.
 - Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl`, `.pi-session-id` and `.pi-review-base` are
   created in the working directory of each dispatch and are safe to delete.
@@ -87,7 +87,8 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 - The pane shows the task Claude sent, Pi's assistant text, and Pi's tool call
   titles (not tool output, not thinking).
 - Only one Pi session per conversation, and one workspace at a time.
-- The pane keeps entries in memory; the plugin's only writes are the bindings file, changed by `/pi-unbind` and `/pi:stop`.
+- The pane keeps entries in memory; the only file written is the bindings file
+  (`/pi:start`, `/pi:review`, `/pi:connect`, `/pi:stop` and `/pi:unbind` all change it).
 - A single message over 3 MiB (a base64 screenshot, say) is skipped in byte space and shown as one placeholder line; the rest keeps flowing.
 - `/pi-unbind` takes no file lock: operate on one conversation at a time.
 - One process with several conversations: the pane follows the last bound session.
@@ -155,7 +156,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
                                                                   └── 渲染到侧边栏
 ```
 
-- 绑定表 `<plugin>/pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
+- 绑定表 `~/.claude/pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一个 Pi 会话文件」。一个对话只绑一条 Pi 会话。
 - 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-session-id`、`.pi-review-base`，都是临时文件，可随时删。
 
@@ -179,7 +180,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 - 面板显示三类内容：Claude 发出的任务书、Pi 的正文、Pi 的工具调用标题
   （不显示工具输出，也不显示思考过程）。
 - 一个对话只绑一条 Pi 会话；同一时间只支持一个工作区。
-- 面板内容全部在内存里；插件唯一的写盘是 `/pi-unbind` 和 `/pi:stop` 改绑定表。
+- 面板内容全部在内存里；唯一写盘的是绑定表（`/pi:start`、`/pi:review`、`/pi:connect`、`/pi:stop`、`/pi:unbind` 都会改）。
 - 单条消息超过 3 MiB（比如 base64 截图）会在字节空间里跳过，只显示一行"超大消息已跳过"，后续内容照常。
 - `/pi-unbind` 不带文件锁：同一时间只操作一个对话。
 - 一个进程多个对话时，面板跟随最后一个绑定的会话。

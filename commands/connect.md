@@ -1,7 +1,7 @@
 ---
 description: Connect this conversation to an existing Pi session
 argument-hint: [工作目录]
-allowed-tools: Bash(ls *) Bash(cat *) Bash(head *) Bash(dirname *) Bash(python3 *) Bash(jq *) Bash(claude plugin list *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(echo *)
+allowed-tools: Bash(ls *) Bash(cat *) Bash(head *) Bash(dirname *) Bash(python3 *) Bash(jq *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(echo *) Bash(set *) Bash(bash *) Bash(rm *)
 disable-model-invocation: true
 ---
 
@@ -84,15 +84,14 @@ PY
 
 ```bash
 set -eu
-ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
-F="$ROOT/pi-bindings.json"
+F="$HOME/.claude/pi-bindings.json"
 SID="${CLAUDE_CODE_SESSION_ID:-}"
 TARGET="<选中的会话文件>"
 OTHER=$(jq -r --arg sid "$SID" --arg p "$TARGET" 'to_entries[] | select(.value == $p and .key != $sid) | .key' "$F" 2>/dev/null | head -1)
 if [ -n "$OTHER" ]; then echo "BOUND_ELSEWHERE:$OTHER"; exit 0; fi
 tmp=$(mktemp -p "$(dirname "$F")")
 trap 'rm -f "$tmp"' EXIT
-flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" --arg p "$2" ".[\$sid] = \$p" "$3" > "$4" && mv "$4" "$3"' _ "$SID" "$TARGET" "$F" "$tmp"
+flock "$F.lock" bash -c 'jq --arg sid "$1" --arg p "$2" ".[\$sid] = \$p" "$3" > "$4" && mv "$4" "$3"' _ "$SID" "$TARGET" "$F" "$tmp"
 echo "BOUND"
 ```
 
@@ -107,15 +106,14 @@ echo "BOUND"
   - 同意 → 一条命令重绑：
     ```bash
     set -eu
-    ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
-    F="$ROOT/pi-bindings.json"
+    F="$HOME/.claude/pi-bindings.json"
     SID="${CLAUDE_CODE_SESSION_ID:-}"
     TARGET="<选中的会话文件>"
     OTHER="<另一个会话 ID>"
     tmp=$(mktemp -p "$(dirname "$F")")
     trap 'rm -f "$tmp"' EXIT
-    flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" "del(.[$sid])" "$2" > "$3" && mv "$3" "$2"' _ "$OTHER" "$F" "$tmp"
-    flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" --arg p "$2" ".[\$sid] = \$p" "$3" > "$4" && mv "$4" "$3"' _ "$SID" "$TARGET" "$F" "$tmp"
+    flock "$F.lock" bash -c 'jq --arg sid "$1" "del(.[$sid])" "$2" > "$3" && mv "$3" "$2"' _ "$OTHER" "$F" "$tmp"
+    flock "$F.lock" bash -c 'jq --arg sid "$1" --arg p "$2" ".[\$sid] = \$p" "$3" > "$4" && mv "$4" "$3"' _ "$SID" "$TARGET" "$F" "$tmp"
     echo "REBOUND"
     ```
     然后回「已把那边解绑并连到这边。」

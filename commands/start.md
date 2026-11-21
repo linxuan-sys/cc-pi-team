@@ -1,7 +1,7 @@
 ---
 description: Pi team mode: plan, delegate coding to Pi, review and commit
 argument-hint: [需求描述]
-allowed-tools: Bash(pi *) Bash(setsid *) Bash(nohup *) Bash(pgrep *) Bash(pkill *) Bash(seq *) Bash(sleep *) Bash(set *) Bash(claude plugin list *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(head *) Bash(basename *) Bash(echo *) Bash(readlink *) Bash(sed *) Bash(tr *) Read Grep Glob Write Edit EnterPlanMode ExitPlanMode AskUserQuestion
+allowed-tools: Bash(pi *) Bash(setsid *) Bash(nohup *) Bash(pgrep *) Bash(pkill *) Bash(seq *) Bash(sleep *) Bash(set *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(head *) Bash(basename *) Bash(echo *) Bash(readlink *) Bash(sed *) Bash(tr *) Bash(kill *) Bash(pwd *) Bash(printf *) Read Grep Glob Write Edit EnterPlanMode ExitPlanMode AskUserQuestion
 disable-model-invocation: true
 ---
 
@@ -54,19 +54,20 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 git rev-parse --verify HEAD >/dev/null 2>&1 || { echo "NO_HEAD"; exit 1; }
 
-# 有未提交的改动：直接本地提交，不 push
+git rev-parse --verify pi/team >/dev/null 2>&1 \
+  && git switch -q pi/team \
+  || { git switch -qc pi/team || { echo "SWITCH_FAILED"; exit 1; }; }
+
+# 切到 pi/team 之后再提交 wip，别把脏改动留在 main
 if [ -n "$(git status --porcelain -- . ':(exclude).pi-*')" ]; then
   git add -A -- . ':(exclude).pi-*'
   git commit -qm "wip: before pi task"
 fi
-
-git rev-parse --verify pi/team >/dev/null 2>&1 \
-  && git switch -q pi/team \
-  || git switch -qc pi/team
 ```
 
 - `NO_HEAD` → 贴给用户，停。
-- 未提交的改动直接本地提交（`wip: before pi task`），**不 push 远程**。
+- `SWITCH_FAILED` → 切分支失败，贴给用户，停。
+- 未提交的改动在切到 `pi/team` 之后再本地提交（`wip: before pi task`），**不 push 远程**。
 - 所有 Pi 改动只在 `pi/team` 分支上；没有别的分支名。
 
 ## 3. 写任务书
@@ -87,25 +88,38 @@ git rev-parse --verify pi/team >/dev/null 2>&1 \
 （用户原始需求）
 ```
 
+### 3.1 用户批准（硬门槛）
+
+任务书备好后，先把**完整任务书原样贴给用户**，问：「同意按这个任务书派单吗？」
+
+- 只有用户明确回复「同意 / 可以 / 派吧」，才允许进第 4、5 节启动 Pi。
+- 用户没回、回别的、或提出修改 → 停，改完再贴一遍等批准。
+- 禁止先启动再补说明。
+
 ## 4. 定会话
 
 ```bash
 cd "<工作区>"
 PWD_NOW=$(pwd -P)
-ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+B="$HOME/.claude/pi-bindings.json"
 SID="${CLAUDE_CODE_SESSION_ID:-}"
-BOUND=$(jq -r --arg sid "$SID" '.[$sid] // empty' "$ROOT/pi-bindings.json" 2>/dev/null || true)
+BOUND=$(jq -r --arg sid "$SID" '.[$sid] // empty' "$B" 2>/dev/null || true)
 
 # 1) 本对话已绑定 → 直接沿用；顺手清掉本工作区其他活着的 Pi
 if [ -n "$BOUND" ] && [ -f "$BOUND" ]; then
-  ID=$(basename "$BOUND" .jsonl); ID=${ID##*_}
+  ID=$(head -1 "$BOUND" | python3 -I -c 'import json,sys;print(json.load(sys.stdin).get("id") or "")')
+  [ -n "$ID" ] || { ID=$(basename "$BOUND" .jsonl); ID=${ID##*_}; }
   echo "$ID" > .pi-session-id
   for pid in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$PWD_NOW" ] || continue
     sid=$(printf '%s' "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" | sed -n 's/.*--session-id[= ]\([^ ]*\).*/\1/p')
     [ -n "$sid" ] && [ "$sid" != "$ID" ] && kill "$pid" 2>/dev/null || true
   done
-  echo "BOUND:$ID"
+  if pgrep -f -- "--session-id[= ]$ID" >/dev/null 2>&1; then
+    echo "BOUND_RUNNING:$ID"
+  else
+    echo "BOUND_IDLE:$ID"
+  fi
   exit 0
 fi
 
@@ -119,7 +133,8 @@ done
 echo "RUNNING=$RUNNING"
 ```
 
-- **`BOUND:<id>`** → 已在用这条绑定，本工作区其他 Pi 已杀掉。不用再问新开/已有，直接进第 6 节等待（没有进程在跑就等你下指令）。
+- **`BOUND_IDLE:<id>`** → 绑定的 Pi 空闲。进第 5.1 节，用同一 ID 启动派单。
+- **`BOUND_RUNNING:<id>`** → 绑定的 Pi 还在跑。先跑第 6 节等它退出，再进第 5.1 节用同一 ID 启动。
 - **`RUNNING` 非空** → 直接绑定它，不新开：
 
   ```bash
@@ -134,12 +149,14 @@ echo "RUNNING=$RUNNING"
   echo "$RUNNING" > .pi-session-id
   ```
 
-  然后执行第 5.2 节「写绑定」（用这个 `FILE`），**不启动新进程**。它如果在跑别的任务，先等它结束或问用户，不要直接覆盖 `.pi-start-task.txt`。
+  然后执行第 5.2 节「写绑定」（用这个 `FILE`）。它如果在跑别的任务，先等它结束，再按 5.1 用同一 ID 启动。
 - **`RUNNING` 为空** → 用 `AskUserQuestion` 问「这个工作区没有正在跑的 Pi，要新开一个吗？」：
   1. **是，新开一个 Pi** → `ID=$(python3 -I -c "import uuid;print(uuid.uuid4())")`，写 `.pi-session-id`，走第 5.1 节启动、5.2 绑定。
-  2. **否，用已有对话** → 执行 `/pi:connect` 的流程（列该工作区及子目录的所有 Pi 会话，让用户回编号，写绑定），完成后直接进第 6 节等待，不启动新 Pi。
+  2. **否，用已有对话** → 执行 `/pi:connect` 的流程（列该工作区及子目录的所有 Pi 会话，让用户回编号，写绑定）；绑定后若它在跑就先等它退出，再按 5.1 用同一 ID 启动。
 
-## 5. 启动并绑定（只有新开 Pi 走这里）
+## 5. 启动并绑定（新开、绑定空闲、或已有会话退出后都走这里）
+
+进入本节前必须已经拿到第 3.1 节的用户明确同意；没有同意就停。
 
 ### 5.1 启动
 
@@ -175,12 +192,12 @@ echo "FILE=$FILE"
 ```bash
 set -eu
 cd "<工作区>"
-ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+B="$HOME/.claude/pi-bindings.json"
 FILE="<会话文件绝对路径>"
 LAUNCHED="<1 或 0>"
-BIND=$(flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT" "$FILE" <<'PY'
+BIND=$(flock "$B.lock" python3 -I - "$B" "$FILE" <<'PY'
 import json, os, pathlib, sys
-p = pathlib.Path(sys.argv[1]) / 'pi-bindings.json'
+p = pathlib.Path(sys.argv[1])
 target = sys.argv[2]
 data = {}
 if p.exists():
@@ -266,8 +283,8 @@ echo "PI_DONE"
 ## 9. 外部打开（仅用户询问时）
 
 ```bash
-ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
-FILE=$(jq -r --arg sid "${CLAUDE_CODE_SESSION_ID:-}" '.[$sid] // empty' "$ROOT/pi-bindings.json")
+B="$HOME/.claude/pi-bindings.json"
+FILE=$(jq -r --arg sid "${CLAUDE_CODE_SESSION_ID:-}" '.[$sid] // empty' "$B")
 if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then echo "NOT_BOUND"; exit 0; fi
 head -1 "$FILE" | python3 -I -c "import json,sys;d=json.load(sys.stdin);print('ID='+d.get('id',''));print('CWD='+d.get('cwd',''))"
 ```

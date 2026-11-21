@@ -15,10 +15,9 @@ type Entry = { key: string; kind: Kind; text: string }
 let bindingsPath = ''
 async function bindingsFile($: any): Promise<string> {
   if (!bindingsPath) {
-    const env = await $.process.hookEnv()
-    const root = env.CLAUDE_PLUGIN_ROOT
-    if (!root) throw new Error('CLAUDE_PLUGIN_ROOT 未设置，无法定位绑定表')
-    bindingsPath = `${root}/pi-bindings.json`
+    const home = await $.env.get('HOME')
+    if (!home) throw new Error('HOME 未设置，无法定位绑定表')
+    bindingsPath = `${home}/.claude/pi-bindings.json`
   }
   return bindingsPath
 }

@@ -1,7 +1,7 @@
 ---
 description: Review code with Pi (read-only task), fix and re-review until it passes
 argument-hint: [审查目标，可空]
-allowed-tools: Bash(pi *) Bash(setsid *) Bash(nohup *) Bash(pgrep *) Bash(pkill *) Bash(seq *) Bash(sleep *) Bash(set *) Bash(claude plugin list *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(head *) Bash(basename *) Bash(echo *) Bash(readlink *) Bash(sed *) Bash(tr *) Read Grep Glob Write Edit AskUserQuestion
+allowed-tools: Bash(pi *) Bash(setsid *) Bash(nohup *) Bash(pgrep *) Bash(pkill *) Bash(seq *) Bash(sleep *) Bash(set *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(head *) Bash(basename *) Bash(echo *) Bash(readlink *) Bash(sed *) Bash(tr *) Bash(kill *) Bash(pwd *) Bash(printf *) Read Grep Glob Write Edit AskUserQuestion
 disable-model-invocation: true
 ---
 
@@ -63,7 +63,7 @@ fi
 2. 重点检查：逻辑错误、边界条件、异常被吞、资源泄漏、并发竞态、性能问题、安全风险、死代码与无用变量、与项目约定不一致。
 3. 每条问题必须落到具体 文件:行；不确定的标注"待确认"，不要编。
 4. 不要改代码，也不要给整段重写，只给问题与修复建议。
-5. 每轮修复后我都会把改动暂存（git add）。复审时先用 `git status` 和 `git diff` 对比仓库，看这一轮到底改了什么；分支是 `pi/team`。任何情况下你都不能创建分支、不能暂存、不能推送（禁止 git add / git push）。
+5. 每轮修复后我都会把改动暂存（git add）。复审时先用 `git status` 和 `git diff --cached` 对比仓库，看这一轮到底改了什么；分支是 `pi/team`。任何情况下你都不能创建分支、不能暂存、不能推送（禁止 git add / git push）。
 【输出】
 按严重程度排序（阻断 / 重要 / 次要 / 建议），每条：
 - 文件:行 — 问题 — 为什么是问题 — 修复建议
@@ -75,13 +75,14 @@ fi
 ```bash
 cd "<工作区>"
 PWD_NOW=$(pwd -P)
-ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+B="$HOME/.claude/pi-bindings.json"
 SID="${CLAUDE_CODE_SESSION_ID:-}"
-BOUND=$(jq -r --arg sid "$SID" '.[$sid] // empty' "$ROOT/pi-bindings.json" 2>/dev/null || true)
+BOUND=$(jq -r --arg sid "$SID" '.[$sid] // empty' "$B" 2>/dev/null || true)
 
 # 1) 本对话已绑定 → 沿用；清掉本工作区其他活着的 Pi
 if [ -n "$BOUND" ] && [ -f "$BOUND" ]; then
-  ID=$(basename "$BOUND" .jsonl); ID=${ID##*_}
+  ID=$(head -1 "$BOUND" | python3 -I -c 'import json,sys;print(json.load(sys.stdin).get("id") or "")')
+  [ -n "$ID" ] || { ID=$(basename "$BOUND" .jsonl); ID=${ID##*_}; }
   echo "$ID" > .pi-session-id
   for pid in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$PWD_NOW" ] || continue
@@ -160,12 +161,12 @@ echo "FILE=$FILE"
 ```bash
 set -eu
 cd "<工作区>"
-ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+B="$HOME/.claude/pi-bindings.json"
 FILE="<会话文件绝对路径>"
 LAUNCHED="<1 或 0>"
-BIND=$(flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT" "$FILE" <<'PY'
+BIND=$(flock "$B.lock" python3 -I - "$B" "$FILE" <<'PY'
 import json, os, pathlib, sys
-p = pathlib.Path(sys.argv[1]) / 'pi-bindings.json'
+p = pathlib.Path(sys.argv[1])
 target = sys.argv[2]
 data = {}
 if p.exists():
@@ -222,18 +223,20 @@ echo "PI_DONE"
 2. 逐条打开 `文件:行` 复核：属实保留，报错标「已复核：误报」。
 3. 「Pi 报的」和「我复核过的」分开写。
 
-## 7. 修复 → 复审
+## 7. 修复 → 复审（自动循环，不要停）
 
-1. 修完暂存，不 commit、不 push：
+1. 修完提交到本地分支 `pi/team`（不 push 远程）：
+
    ```bash
    git add -u -- . ':(exclude).pi-*'
    git add -- "<本轮新增的文件>"
+   git commit -qm "pi: 第 N 轮修复"
    ```
-2. 问题清单和修复说明**追加**到 `.pi-review-task.txt`，要求逐条确认并重扫。
-3. 重跑第 3、4、5 节（同一会话 ID 接着跑）。
-4. 通过 → 汇报；不通过 → 再修。最多 5 轮，第 5 轮还不过就如实报告剩余问题。
 
-每轮汇报：第几轮、修了什么、它的结论。
+2. 问题清单和修复说明**追加**到 `.pi-review-task.txt`，要求逐条确认并重扫。
+3. **立刻**重跑第 3、4、5 节（同一会话 ID），复核、再修、再提交。
+4. **中途不要问用户，不要每轮汇报**；只在通过、5 轮上限、或必须用户拍板时停。
+5. 结束时一次性汇报：共几轮、每轮修了什么、最终结论、剩余问题。
 
 ## 8. 一个会话
 

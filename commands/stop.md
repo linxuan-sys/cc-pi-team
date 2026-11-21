@@ -1,7 +1,7 @@
 ---
 description: Exit Pi team mode, unbind and resume normal work
 argument-hint:
-allowed-tools: Bash(pkill *) Bash(pgrep *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *)
+allowed-tools: Bash(pkill *) Bash(pgrep *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *) Bash(dirname *) Bash(printf *)
 disable-model-invocation: true
 ---
 
@@ -13,8 +13,7 @@ disable-model-invocation: true
 
 ```bash
 set -e
-ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
-F="$ROOT/pi-bindings.json"
+F="$HOME/.claude/pi-bindings.json"
 SID="${CLAUDE_CODE_SESSION_ID:-}"
 OUT=$(python3 -I - "$F" "$SID" <<'PY'
 import json, pathlib, sys
@@ -50,7 +49,7 @@ if [ -n "$PI_ID" ]; then
 fi
 tmp=$(mktemp -p "$(dirname "$F")")
 trap 'rm -f "$tmp"' EXIT
-flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" "del(.[$sid])" "$2" > "$3" && mv "$3" "$2"' _ "$SID" "$F" "$tmp"
+flock "$F.lock" bash -c 'jq --arg sid "$1" "del(.[$sid])" "$2" > "$3" && mv "$3" "$2"' _ "$SID" "$F" "$tmp"
 echo "UNBOUND"
 echo "SESSION_FILE=$SESSION_FILE"
 echo "PI_ID=$PI_ID"
