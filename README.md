@@ -15,7 +15,7 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 - [Pi](https://github.com/badlogic/pi-mono) (`pi` on `PATH`)
 - `pi-acp` — ACP adapter for Pi
 - `acpx` — headless ACP client
-- `jq` — used by `/pi:stop` to edit the bindings file
+- `jq` and `python3` — used by `/pi:start`, `/pi:review` and `/pi:stop` to read and edit the bindings file
 
 ## Install
 
@@ -47,8 +47,8 @@ Claude ──acpx──> pi-acp ──> Pi
 
 - The bindings file `<plugin>/pi-bindings.json` maps one Claude Code session id
   to one Pi session file. One conversation binds exactly one Pi session.
-- Runtime files `.pi-task.txt` and `.pi-events.jsonl` are created in the working
-  directory of each dispatch and are safe to delete.
+- Runtime files `.pi-task.txt`, `.pi-events.jsonl` and `.pi-dirty-before.txt` are
+  created in the working directory of each dispatch and are safe to delete.
 
 ## Layout
 
@@ -90,7 +90,7 @@ Claude ──acpx──> pi-acp ──> Pi
 - [Pi](https://github.com/badlogic/pi-mono)（`pi` 在 `PATH` 里）
 - `pi-acp` —— Pi 的 ACP 适配器
 - `acpx` —— 无界面 ACP 客户端
-- `jq` —— `/pi:stop` 改绑定表时用
+- `jq` 和 `python3` —— `/pi:start`、`/pi:review`、`/pi:stop` 读写绑定表时用
 
 ## 安装
 
@@ -122,7 +122,7 @@ Claude ──acpx──> pi-acp ──> Pi
 
 - 绑定表 `<plugin>/pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一个 Pi 会话文件」。一个对话只绑一条 Pi 会话。
-- 每次派单会在工作区生成 `.pi-task.txt` 和 `.pi-events.jsonl`，都是临时文件，可随时删。
+- 每次派单会在工作区生成 `.pi-task.txt`、`.pi-events.jsonl`、`.pi-dirty-before.txt`，都是临时文件，可随时删。
 
 ## 目录结构
 
@@ -143,4 +143,4 @@ Claude ──acpx──> pi-acp ──> Pi
 - 面板显示三类内容：Claude 发出的任务书、Pi 的正文、Pi 的工具调用标题
   （不显示工具输出，也不显示思考过程）。
 - 一个对话只绑一条 Pi 会话；同一时间只支持一个工作区。
-- 面板内容全部在内存里，插件不往磁盘写任何东西。
+- 面板内容全部在内存里；插件唯一的写盘是 `/pi-unbind` 和 `/pi:stop` 改绑定表。

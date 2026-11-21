@@ -1,18 +1,18 @@
 ---
 description: Review code with Pi (read-only), fix and re-review until it passes
 argument-hint: [审查目标，可空]
-allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Read Grep Glob Write Edit
+allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Read Grep Glob Write Edit
 disable-model-invocation: true
 ---
 
 分工：**Pi 只读**（可读文件、跑命令、写临时脚本到 `/tmp`，但不许改工作区）；**Claude 负责按结论修复**。
 
+**安全提醒**：Pi 以 `--approve-all` 启动，等于放行它想跑的任意命令；"只读"只是任务书里的约定，不是技术限制。工作区来自他人仓库时，先向用户说明这一点。
+
 审查目标：$ARGUMENTS
 （为空 = 当前未提交的改动；不是 git 仓库就审查整个项目目录）
 
-## 0. 准备工作区与分支
-
-审查前先把 git 准备好，方便按轮次对比：
+## 0. 准备工作区（不切分支）
 
 ```bash
 cd "<工作区>"
@@ -21,12 +21,10 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git add -A -- . ':(exclude).pi-*'
   git commit -qm "baseline: before pi review" || true
 fi
-git rev-parse --verify pi/team >/dev/null 2>&1 \
-  && git switch -q pi/team \
-  || git switch -qc pi/team
+git rev-parse HEAD > .pi-review-base   # 记下审查起点
 ```
 
-分支名固定 `pi/team`，跟开发任务用同一条，方便对照。
+审查**不切换分支**：在用户当前的分支上审，范围只算 `git diff HEAD`。切到 `pi/team` 会把两条分支的差异全混进来，审错对象。
 
 ## 1. 确定范围
 
@@ -40,7 +38,7 @@ git rev-parse --verify pi/team >/dev/null 2>&1 \
 acpx pi sessions ensure
 ```
 
-解析会话文件（**直接照抄 `/pi:start` 阶段 2 的绑定代码块**，不要凭这句话自己重写），先解析插件根：`ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')`，把当前 `CLAUDE_CODE_SESSION_ID` → 会话文件路径写进 `$ROOT/pi-bindings.json`，这样侧边栏能看到审查过程。已经绑了别的会话就先停下，让用户 `/pi-unbind`；如果这条 Pi 会话已经被**别的 CC 对话**占用，同样停下，不要两个对话同时驱动一个 Pi 会话。
+解析会话文件：**直接照抄 `/pi:start` 阶段 2 的绑定代码块**（含 `flock` 与 `jq`），不要凭这句话自己重写。把当前 `CLAUDE_CODE_SESSION_ID` → 会话文件路径写进 `$ROOT/pi-bindings.json`，这样侧边栏能看到审查过程。已经绑了别的会话就先停下，让用户 `/pi-unbind`；如果这条 Pi 会话已经被**别的 CC 对话**占用，同样停下，不要两个对话同时驱动一个 Pi 会话。
 
 ## 3. 写任务书
 

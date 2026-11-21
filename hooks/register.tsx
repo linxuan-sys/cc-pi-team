@@ -3,13 +3,17 @@ import type { Register } from 'claude-code'
 
 const PANE = 'pi-view'
 const MAX_READ = 1024 * 1024 // 每次最多读 1 MiB，避开引擎 4 MiB 上限
-const MAX_KEEP = 5000 // 内存里最多保留的条数
+const MAX_KEEP = 5000
 const SEP = '\u0001'
 const TOOL = '⚙ '
 const MARK = '%%CLAUDE%%'
+// 工具命令里不显示控制字符/ANSI 转义
+const CTRL = /[\u0000-\u001f\u007f-\u009f]|\u001b\[[0-9;]*[A-Za-z]/g
+
+type Kind = 'task' | 'tool' | 'text'
+type Entry = { key: string; kind: Kind; text: string }
 
 let bindingsPath = ''
-let homeDir = ''
 async function bindingsFile($: any): Promise<string> {
   if (!bindingsPath) {
     const env = await $.process.hookEnv()
@@ -20,7 +24,7 @@ async function bindingsFile($: any): Promise<string> {
   return bindingsPath
 }
 
-// atom 里存 `${key}␁${text}`：key 用于 React 复用，text 是要显示的内容
+// atom 每项编码为 `kind␁key␁text`，类型不再靠正文前缀猜
 const lines = atom({ plugin: 'pi', key: 'lines' } as const, [] as string[], {
   shape: 'lines-1',
 })
@@ -31,12 +35,20 @@ let lastSize = -1
 let lastMtime = -1
 let running = false
 let stopTick: (() => void) | null = null
-let entries: Array<{ key: string; text: string }> = []
+let entries: Entry[] = []
 const seen = new Set<string>()
 
-function parseEntries(raw: string): Array<{ key: string; text: string }> {
-  const out: Array<{ key: string; text: string }> = []
+function byteLen(text: string): number {
+  const enc = (globalThis as any).TextEncoder
+  return enc === undefined ? text.length : new enc().encode(text).length
+}
+
+function parseEntries(raw: string, base: number): Entry[] {
+  const out: Entry[] = []
+  let at = base
   for (const line of raw.split('\n')) {
+    const lineStart = at
+    at += byteLen(line) + 1
     if (!line.trim()) continue
     let d: any
     try {
@@ -46,23 +58,22 @@ function parseEntries(raw: string): Array<{ key: string; text: string }> {
     }
     if (d?.type !== 'message') continue
     const m = d.message ?? {}
-    const mid = String(d.id ?? '')
-    // system 消息的 content 常常是字符串；不是数组就直接跳过，别再让整个解析炸掉
     if (m.role !== 'assistant' && m.role !== 'user') continue
     if (!Array.isArray(m.content)) continue
+    const mid = String(d.id ?? '')
     m.content.forEach((b: any, i: number) => {
-      const key = `${mid}:${i}`
+      const key = mid === '' ? `${lineStart}:${i}` : `${mid}:${i}`
       if (b?.type === 'toolCall' && m.role === 'assistant') {
         const cmd = b.arguments?.command ?? b.arguments?.path ?? ''
-        const one = String(cmd).split('\n')[0].slice(0, 120)
-        out.push({ key, text: TOOL + (b.name ?? 'tool') + (one ? ': ' + one : '') })
+        const one = String(cmd).split('\n')[0].replace(CTRL, ' ').slice(0, 120)
+        out.push({ key, kind: 'tool', text: TOOL + (b.name ?? 'tool') + (one ? ': ' + one : '') })
         return
       }
       if (b?.type !== 'text' || typeof b.text !== 'string') return
       const text = b.text.trim()
       if (!text) return
-      if (m.role === 'assistant') out.push({ key, text })
-      else if (m.role === 'user' && text.startsWith('【角色】')) out.push({ key, text: MARK + text })
+      if (m.role === 'assistant') out.push({ key, kind: 'text', text })
+      else if (m.role === 'user' && text.startsWith('【角色】')) out.push({ key, kind: 'task', text })
     })
   }
   return out
@@ -93,6 +104,41 @@ function reset() {
   primed = false
 }
 
+function trim() {
+  if (entries.length <= MAX_KEEP) return
+  entries = entries.slice(-MAX_KEEP)
+  seen.clear()
+  for (const e of entries) seen.add(e.key)
+}
+
+function encoded(): string[] {
+  return entries.map(e => `${e.kind}${SEP}${e.key}${SEP}${e.text}`)
+}
+
+/**
+ * 从 `from` 读到 `to`，只处理以换行结尾的完整行；返回真正消费到的字节位置。
+ * 读块在换行处截断，绝不落在字符中间，所以不会产生 U+FFFD。
+ */
+async function consume($: any, target: string, from: number, to: number): Promise<number> {
+  let at = from
+  while (at < to) {
+    const len = Math.min(MAX_READ, to - at)
+    const text = await $.fs.read(target, { offset: at, length: len })
+    const cut = text.lastIndexOf('\n')
+    if (cut < 0) break // 还没有完整的一行，等下次
+    const body = text.slice(0, cut + 1)
+    for (const e of parseEntries(body, at)) {
+      if (!seen.has(e.key)) {
+        seen.add(e.key)
+        entries.push(e)
+      }
+    }
+    at += byteLen(body)
+    if (len < MAX_READ) break
+  }
+  return at
+}
+
 async function poll($: any) {
   if (running) return
   running = true
@@ -113,63 +159,33 @@ async function poll($: any) {
     }
     const st = await $.fs.stat(target)
     const mtime = (st as any).mtimeMs ?? 0
-    if (st.size === lastSize && mtime === lastMtime) return
+    if (st.size < lastSize) reset() // 文件被截断/重写
 
-    // 首次读这条会话：分块读完整个文件，历史一条不漏
     if (!primed) {
-      let off = 0
-      let carry = ''
-      while (off < st.size) {
-        const len = Math.min(MAX_READ, st.size - off)
-        const part = carry + (await $.fs.read(target, { offset: off, length: len }))
-        const cut = part.lastIndexOf('\n')
-        const body = cut >= 0 ? part.slice(0, cut) : ''
-        carry = cut >= 0 ? part.slice(cut + 1) : part
-        for (const e of parseEntries(body)) {
-          if (!seen.has(e.key)) {
-            seen.add(e.key)
-            entries.push(e)
-          }
-        }
-        off += len
-      }
+      lastSize = await consume($, target, 0, st.size)
       primed = true
-      lastSize = st.size
       lastMtime = mtime
-      if (entries.length > MAX_KEEP) {
-        entries = entries.slice(-MAX_KEEP)
-        seen.clear()
-        for (const e of entries) seen.add(e.key)
-      }
-      await update($, lines, () => entries.map(e => e.key + SEP + e.text))
+      trim()
+      await update($, lines, encoded)
       return
     }
 
-    const start = Math.max(0, st.size - MAX_READ)
-    const chunk = await $.fs.read(target, { offset: start, length: st.size - start })
-    const nl = start > 0 ? chunk.indexOf('\n') : 0
-    const body = start > 0 && nl >= 0 ? chunk.slice(nl + 1) : chunk
-    if (!body.trim()) return // 窗口里还没有完整的行，下次再试，不清屏
-    const fresh = parseEntries(body).filter(e => !seen.has(e.key))
-    if (fresh.length === 0) {
-      lastSize = st.size
-      lastMtime = mtime
-      return
-    }
-    for (const e of fresh) {
-      seen.add(e.key)
-      entries.push(e)
-    }
-    if (entries.length > MAX_KEEP) {
-      entries = entries.slice(-MAX_KEEP)
-      seen.clear()
-      for (const e of entries) seen.add(e.key)
-    }
-    lastSize = st.size
+    if (st.size === lastSize && mtime === lastMtime) return
+    const before = entries.length
+    const at = await consume($, target, lastSize, st.size)
+    lastSize = at
     lastMtime = mtime
-    await update($, lines, () => entries.map(e => e.key + SEP + e.text))
-  } catch {
-    // 读失败：保留已有内容，下次再试
+    if (entries.length !== before) {
+      trim()
+      await update($, lines, encoded)
+    }
+  } catch (error: unknown) {
+    try {
+      const why = error instanceof Error ? error.message : String(error)
+      $.ui.log(`pi-pane: ${why}`, { to: 'debug' })
+    } catch {
+      // 日志本身失败也不影响轮询
+    }
   } finally {
     running = false
   }
@@ -201,6 +217,7 @@ export const register: Register = on => {
 
   on('pi.open', async $ => {
     await $.ui.open({ id: PANE, title: 'Pi Output' })
+    return { value: undefined }
   })
 
   on('session.end', async ($, e, next) => {
@@ -208,6 +225,9 @@ export const register: Register = on => {
       stopTick()
       stopTick = null
     }
+    shownPath = ''
+    reset()
+    await update($, lines, () => [])
     return next(e)
   })
 
@@ -247,8 +267,13 @@ export const register: Register = on => {
         </Box>
       )
     const list = raw.map(s => {
-      const i = s.indexOf(SEP)
-      return { key: i >= 0 ? s.slice(0, i) : s, text: i >= 0 ? s.slice(i + 1) : s }
+      const first = s.indexOf(SEP)
+      const second = s.indexOf(SEP, first + 1)
+      return {
+        kind: s.slice(0, first) as Kind,
+        key: s.slice(first + 1, second),
+        text: s.slice(second + 1),
+      }
     })
     return (
       <Box flexDirection="column">
@@ -257,11 +282,11 @@ export const register: Register = on => {
           <Text dimColor>等待 Pi 输出…</Text>
         ) : (
           list.map(item =>
-            item.text.startsWith(MARK) ? (
+            item.kind === 'task' ? (
               <Box key={item.key} borderStyle="round" borderColor="cyan" paddingX={1}>
-                <Text color="cyan">{'我 → Pi: ' + item.text.slice(MARK.length)}</Text>
+                <Text color="cyan">{'我 → Pi: ' + item.text}</Text>
               </Box>
-            ) : item.text.startsWith(TOOL) ? (
+            ) : item.kind === 'tool' ? (
               <Text key={item.key} dimColor>
                 {item.text}
               </Text>

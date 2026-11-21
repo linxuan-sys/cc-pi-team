@@ -1,7 +1,7 @@
 ---
 description: Pi team mode: plan, delegate coding to Pi, review and commit
 argument-hint: [需求描述]
-allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(mkdir *) Read Grep Glob Write Edit
+allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(mkdir *) Read Grep Glob Write Edit
 disable-model-invocation: true
 ---
 
@@ -81,6 +81,7 @@ disable-model-invocation: true
 ```bash
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git init -q
+  # 基线是唯一一次整目录入库（排除 .pi-*）；之后的暂存只用 add -u 加核实过的文件
   git add -A -- . ':(exclude).pi-*'
   git commit -qm "baseline: before pi task"
 fi
@@ -109,25 +110,35 @@ set -e
 cd "<工作区绝对路径>"   # 失败就中断，不许继续往下绑
 acpx pi sessions ensure
 ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
-python3 -I - "$ROOT" <<'PY'
+flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT" <<'PY'
 import glob, json, os, pathlib, sys
 cwd = str(pathlib.Path.cwd())
-records = [json.load(open(f)) for f in glob.glob(os.path.expanduser('~/.acpx/sessions/*.json'))]
+records = []
+for f in glob.glob(os.path.expanduser('~/.acpx/sessions/*.json')):
+    try:
+        with open(f, encoding='utf-8') as fh:
+            records.append(json.load(fh))
+    except Exception:
+        continue
 same = [d for d in records if d.get('cwd') == cwd]
 if not same:
     print('NO_SESSION'); raise SystemExit(1)
 sid = max(same, key=lambda d: d.get('last_used_at') or '')['acp_session_id']
-m = json.load(open(os.path.expanduser('~/.pi/pi-acp/session-map.json')))
-session_file = m['sessions'][sid]['sessionFile']
+with open(os.path.expanduser('~/.pi/pi-acp/session-map.json'), encoding='utf-8') as fh:
+    session_file = json.load(fh)['sessions'][sid]['sessionFile']
 p = pathlib.Path(sys.argv[1]) / 'pi-bindings.json'
-data = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+data = {}
+if p.exists():
+    try:
+        data = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        data = {}
 me = os.environ.get('CLAUDE_CODE_SESSION_ID', '')
 if not me:
     print('NO_SESSION_ID'); raise SystemExit(1)
 cur = data.get(me, '')
 if cur and cur != session_file:
     print('ALREADY_BOUND:' + cur); raise SystemExit(1)
-# 反向检查：这条 Pi 会话是不是已经被别的 CC 对话占着
 others = [k for k, v in data.items() if v == session_file and k != me]
 if others:
     print('BOUND_ELSEWHERE:' + others[0]); raise SystemExit(1)
