@@ -1,7 +1,7 @@
 ---
-description: Pi 团队模式：Claude 领航（计划/审核），Pi 掌舵（核心编码），双向协作
+description: Pi team mode: plan, delegate coding to Pi, review and commit
 argument-hint: [需求描述]
-allowed-tools: Bash(acpx *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(mkdir *) Read Grep Glob Write Edit
+allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(mkdir *) Read Grep Glob Write Edit
 disable-model-invocation: true
 ---
 
@@ -13,7 +13,7 @@ disable-model-invocation: true
 - **Pi 是助理**：核心代码全部由 Pi 写。Pi 直接听命于你。
 - **子代理从属**：你可以派自己的子代理（调研、审查）；Pi 自己会派子代理，**你不干涉、不指挥 Pi 的子代理**——它们只听 Pi 的。
 - 本模式在本会话内持续有效。用户说"退出 Pi 模式"时，等同执行 `/pi:stop`：
-  **先解除本对话与 Pi 的绑定**（删掉 `~/.claude/pi-bindings.json` 里本会话条目），再恢复正常模式。
+  **先解除本对话与 Pi 的绑定**（删掉插件目录 `pi-bindings.json` 里本会话那条，做法同 `/pi:stop`），再恢复正常模式。
 
 ## 铁律
 
@@ -43,7 +43,7 @@ disable-model-invocation: true
 **禁止把 `$HOME` 当工作区**：家目录里不许 `git init`、不许写 `.pi-*` 文件。
 确定后，在计划第一行写明「工作区：<绝对路径>」。
 
-绑定表固定在 `~/.claude/pi-bindings.json`，与插件装在哪、从哪个目录跑都无关。
+绑定表放在**插件根目录**下的 `pi-bindings.json`，跟插件一起走，删插件即清空。
 
 ### 阶段 1：出计划（禁止写代码）
 
@@ -108,7 +108,8 @@ git status --porcelain -- . ':(exclude).pi-*' > .pi-dirty-before.txt
 set -e
 cd "<工作区绝对路径>"   # 失败就中断，不许继续往下绑
 acpx pi sessions ensure
-python3 -I - <<'PY'
+ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+python3 -I - "$ROOT" <<'PY'
 import glob, json, os, pathlib, sys
 cwd = str(pathlib.Path.cwd())
 records = [json.load(open(f)) for f in glob.glob(os.path.expanduser('~/.acpx/sessions/*.json'))]
@@ -118,7 +119,7 @@ if not same:
 sid = max(same, key=lambda d: d.get('last_used_at') or '')['acp_session_id']
 m = json.load(open(os.path.expanduser('~/.pi/pi-acp/session-map.json')))
 session_file = m['sessions'][sid]['sessionFile']
-p = pathlib.Path.home() / '.claude' / 'pi-bindings.json'
+p = pathlib.Path(sys.argv[1]) / 'pi-bindings.json'
 data = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
 me = os.environ.get('CLAUDE_CODE_SESSION_ID', '')
 if not me:
@@ -158,7 +159,7 @@ acpx --approve-all --timeout 7200 --format json pi -f .pi-task.txt > .pi-events.
 
 这时只做两步：
 
-1. 读 `~/.claude/pi-bindings.json`，找到 key 为当前 `CLAUDE_CODE_SESSION_ID` 的那条，值就是 Pi 会话文件的路径。
+1. 读 `$ROOT/pi-bindings.json`，找到 key 为当前 `CLAUDE_CODE_SESSION_ID` 的那条，值就是 Pi 会话文件的路径。
 2. 读该文件第一行，取 `id` 字段。
 
 然后**只回一条命令**，不要解释、不要附加别的：

@@ -1,7 +1,7 @@
 ---
-description: 退出 Pi 团队模式，解除绑定并恢复 Claude 自己干活
+description: Exit Pi team mode, unbind and resume normal work
 argument-hint:
-allowed-tools: Bash(acpx *) Bash(jq *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *)
+allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(jq *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *)
 disable-model-invocation: true
 ---
 
@@ -11,9 +11,11 @@ disable-model-invocation: true
 
    ```bash
    set -e
-   F="$HOME/.claude/pi-bindings.json"
+   ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+   F="$ROOT/pi-bindings.json"
    if [ -f "$F" ] && jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "$F" >/dev/null; then
      tmp=$(mktemp)
+     trap 'rm -f "$tmp"' EXIT
      jq --arg sid "$CLAUDE_CODE_SESSION_ID" 'del(.[$sid])' "$F" > "$tmp"
      mv "$tmp" "$F"
      echo "已解绑"

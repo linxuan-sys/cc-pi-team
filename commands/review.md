@@ -1,7 +1,7 @@
 ---
-description: Pi 只读审查代码，Claude 按结论修复直到通过
+description: Review code with Pi (read-only), fix and re-review until it passes
 argument-hint: [审查目标，可空]
-allowed-tools: Bash(acpx *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Read Grep Glob Write Edit
+allowed-tools: Bash(acpx *) Bash(claude plugin list *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Read Grep Glob Write Edit
 disable-model-invocation: true
 ---
 
@@ -40,7 +40,7 @@ git rev-parse --verify pi/team >/dev/null 2>&1 \
 acpx pi sessions ensure
 ```
 
-解析会话文件（同 `/pi:start` 阶段 2 的做法），把当前 `CLAUDE_CODE_SESSION_ID` → 会话文件路径写进 `~/.claude/pi-bindings.json`，这样侧边栏能看到审查过程。已经绑了别的会话就先停下，让用户 `/pi-unbind`；如果这条 Pi 会话已经被**别的 CC 对话**占用，同样停下，不要两个对话同时驱动一个 Pi 会话。
+解析会话文件（**直接照抄 `/pi:start` 阶段 2 的绑定代码块**，不要凭这句话自己重写），先解析插件根：`ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')`，把当前 `CLAUDE_CODE_SESSION_ID` → 会话文件路径写进 `$ROOT/pi-bindings.json`，这样侧边栏能看到审查过程。已经绑了别的会话就先停下，让用户 `/pi-unbind`；如果这条 Pi 会话已经被**别的 CC 对话**占用，同样停下，不要两个对话同时驱动一个 Pi 会话。
 
 ## 3. 写任务书
 

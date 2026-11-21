@@ -1,7 +1,9 @@
 {
-  "name": "pi-market",
+  "name": "cc-pi-team",
   "description": "Pi 团队模式：斜杠命令 + 侧边栏实时输出",
-  "owner": { "name": "LinXuan" },
+  "owner": {
+    "name": "LinXuan"
+  },
   "plugins": [
     {
       "name": "pi",

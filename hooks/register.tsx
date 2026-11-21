@@ -2,35 +2,40 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 const PANE = 'pi-view'
-const MAX_LINES = 12
 const MAX_READ = 1024 * 1024 // 每次最多读 1 MiB，避开引擎 4 MiB 上限
+const MAX_KEEP = 5000 // 内存里最多保留的条数
+const SEP = '\u0001'
 const TOOL = '⚙ '
+const MARK = '%%CLAUDE%%'
 
 let bindingsPath = ''
-// 绑定表放固定位置，跟插件装在哪、命令从哪个目录跑都无关
+let homeDir = ''
 async function bindingsFile($: any): Promise<string> {
   if (!bindingsPath) {
-    const home = await $.env.get('HOME')
-    if (!home) throw new Error('HOME 未设置，无法定位绑定表')
-    bindingsPath = `${home}/.claude/pi-bindings.json`
+    const env = await $.process.hookEnv()
+    const root = env.CLAUDE_PLUGIN_ROOT
+    if (!root) throw new Error('CLAUDE_PLUGIN_ROOT 未设置，无法定位绑定表')
+    bindingsPath = `${root}/pi-bindings.json`
   }
   return bindingsPath
 }
 
+// atom 里存 `${key}␁${text}`：key 用于 React 复用，text 是要显示的内容
 const lines = atom({ plugin: 'pi', key: 'lines' } as const, [] as string[], {
   shape: 'lines-1',
 })
 
 let shownPath = ''
+let primed = false
 let lastSize = -1
+let lastMtime = -1
 let running = false
 let stopTick: (() => void) | null = null
+let entries: Array<{ key: string; text: string }> = []
+const seen = new Set<string>()
 
-const MARK = '%%CLAUDE%%'
-
-// 从一段 jsonl 文本里取出要显示的行：Pi 的正文、工具调用标题、Claude 派出的任务书
-function textsFrom(raw: string): string[] {
-  const out: string[] = []
+function parseEntries(raw: string): Array<{ key: string; text: string }> {
+  const out: Array<{ key: string; text: string }> = []
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue
     let d: any
@@ -41,27 +46,25 @@ function textsFrom(raw: string): string[] {
     }
     if (d?.type !== 'message') continue
     const m = d.message ?? {}
-    for (const b of m.content ?? []) {
+    const mid = String(d.id ?? '')
+    ;(m.content ?? []).forEach((b: any, i: number) => {
+      const key = `${mid}:${i}`
       if (b?.type === 'toolCall' && m.role === 'assistant') {
         const cmd = b.arguments?.command ?? b.arguments?.path ?? ''
         const one = String(cmd).split('\n')[0].slice(0, 120)
-        out.push(TOOL + (b.name ?? 'tool') + (one ? ': ' + one : ''))
-        continue
+        out.push({ key, text: TOOL + (b.name ?? 'tool') + (one ? ': ' + one : '') })
+        return
       }
-      if (b?.type !== 'text' || typeof b.text !== 'string') continue
+      if (b?.type !== 'text' || typeof b.text !== 'string') return
       const text = b.text.trim()
-      if (!text) continue
-      if (m.role === 'assistant') {
-        out.push(text)
-      } else if (m.role === 'user' && text.startsWith('【角色】')) {
-        out.push(MARK + text)
-      }
-    }
+      if (!text) return
+      if (m.role === 'assistant') out.push({ key, text })
+      else if (m.role === 'user' && text.startsWith('【角色】')) out.push({ key, text: MARK + text })
+    })
   }
   return out
 }
 
-// 当前这个 Claude Code 会话绑定的 Pi 会话文件；没绑定或路径不可信就返回空串
 async function boundPath($: any): Promise<string> {
   try {
     const self = await $.session.id()
@@ -70,12 +73,21 @@ async function boundPath($: any): Promise<string> {
     if (typeof p !== 'string' || !p.trim()) return ''
     const st = await $.fs.stat(p.trim(), { resolve: true })
     if (st.kind !== 'file') return ''
-    const real = String((st as any).realPath ?? p.trim())
-    if (!/\.pi\/agent\/sessions\/[^/]+\/[^/]+\.jsonl$/.test(real)) return ''
+    const real = String((st as any).realPath ?? '')
+    const home = await $.env.get('HOME')
+    if (!home || !real.startsWith(`${home}/.pi/agent/sessions/`) || !real.endsWith('.jsonl')) return ''
     return p.trim()
   } catch {
     return ''
   }
+}
+
+function reset() {
+  entries = []
+  seen.clear()
+  lastSize = -1
+  lastMtime = -1
+  primed = false
 }
 
 async function poll($: any) {
@@ -86,29 +98,75 @@ async function poll($: any) {
     if (!target) {
       if (shownPath) {
         shownPath = ''
-        lastSize = -1
+        reset()
         await update($, lines, () => [])
       }
       return
     }
     if (target !== shownPath) {
       shownPath = target
-      lastSize = -1
+      reset()
       await update($, lines, () => [])
     }
     const st = await $.fs.stat(target)
-    if (st.size === lastSize) return
-    const start = Math.max(0, st.size - MAX_READ)
-    let chunk = await $.fs.read(target, { offset: start, length: st.size - start })
-    if (start > 0) {
-      const nl = chunk.indexOf('\n')
-      chunk = nl >= 0 ? chunk.slice(nl + 1) : ''
+    const mtime = (st as any).mtimeMs ?? 0
+    if (st.size === lastSize && mtime === lastMtime) return
+
+    // 首次读这条会话：分块读完整个文件，历史一条不漏
+    if (!primed) {
+      let off = 0
+      let carry = ''
+      while (off < st.size) {
+        const len = Math.min(MAX_READ, st.size - off)
+        const part = carry + (await $.fs.read(target, { offset: off, length: len }))
+        const cut = part.lastIndexOf('\n')
+        const body = cut >= 0 ? part.slice(0, cut) : ''
+        carry = cut >= 0 ? part.slice(cut + 1) : part
+        for (const e of parseEntries(body)) {
+          if (!seen.has(e.key)) {
+            seen.add(e.key)
+            entries.push(e)
+          }
+        }
+        off += len
+      }
+      primed = true
+      lastSize = st.size
+      lastMtime = mtime
+      if (entries.length > MAX_KEEP) {
+        entries = entries.slice(-MAX_KEEP)
+        seen.clear()
+        for (const e of entries) seen.add(e.key)
+      }
+      await update($, lines, () => entries.map(e => e.key + SEP + e.text))
+      return
     }
-    const found = textsFrom(chunk)
-    await update($, lines, () => found.slice(-MAX_LINES))
+
+    const start = Math.max(0, st.size - MAX_READ)
+    const chunk = await $.fs.read(target, { offset: start, length: st.size - start })
+    const nl = start > 0 ? chunk.indexOf('\n') : 0
+    const body = start > 0 && nl >= 0 ? chunk.slice(nl + 1) : chunk
+    if (!body.trim()) return // 窗口里还没有完整的行，下次再试，不清屏
+    const fresh = parseEntries(body).filter(e => !seen.has(e.key))
+    if (fresh.length === 0) {
+      lastSize = st.size
+      lastMtime = mtime
+      return
+    }
+    for (const e of fresh) {
+      seen.add(e.key)
+      entries.push(e)
+    }
+    if (entries.length > MAX_KEEP) {
+      entries = entries.slice(-MAX_KEEP)
+      seen.clear()
+      for (const e of entries) seen.add(e.key)
+    }
     lastSize = st.size
+    lastMtime = mtime
+    await update($, lines, () => entries.map(e => e.key + SEP + e.text))
   } catch {
-    // 读失败就等下一次轮询，不打断面板
+    // 读失败：保留已有内容，下次再试
   } finally {
     running = false
   }
@@ -123,20 +181,28 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'pi-pane',
-      description: '打开 Pi 输出的右侧面板',
+      description: 'Open the Pi output pane',
       immediate: true,
     })
     await $.command.register({
       name: 'pi-unbind',
-      description: '解除当前对话与 Pi 的绑定',
+      description: 'Unbind this conversation from Pi',
       immediate: true,
     })
     startTick($)
     return next(e)
   })
 
+  on('session.end', async ($, e, next) => {
+    if (stopTick) {
+      stopTick()
+      stopTick = null
+    }
+    return next(e)
+  })
+
   on('command.run', { command: 'pi-pane' }, async $ => {
-    const { isPlaced } = await $.ui.open({ id: PANE, title: 'Pi 输出' })
+    const { isPlaced } = await $.ui.open({ id: PANE, title: 'Pi Output' })
     return { text: isPlaced ? 'Pi 输出面板已打开' : '这个界面不支持侧栏面板' }
   })
 
@@ -153,34 +219,44 @@ export const register: Register = on => {
     delete map[self]
     await $.fs.write(await bindingsFile($), JSON.stringify(map, null, 2))
     shownPath = ''
-    lastSize = -1
+    reset()
     await update($, lines, () => [])
     return { text: `已解绑: ${old}` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Markdown } = $.ui.resolve(e)
-    // 先 read：引擎靠这次读取把面板订阅到 atom 上，之后轮询才能触发重绘
-    const list = await read($, lines)
-    if (!shownPath) return <Box />
-    const recent = list.slice(-MAX_LINES)
+    // 先 read：引擎靠这次读取把面板订阅到 atom 上
+    const raw = await read($, lines)
+    if (!shownPath)
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>Not bound to a Pi session</Text>
+          <Text dimColor>Use /pi:start to begin team mode</Text>
+          <Text dimColor>Use /pi:review to review code</Text>
+        </Box>
+      )
+    const list = raw.map(s => {
+      const i = s.indexOf(SEP)
+      return { key: i >= 0 ? s.slice(0, i) : s, text: i >= 0 ? s.slice(i + 1) : s }
+    })
     return (
       <Box flexDirection="column">
         <Text dimColor>{`Pi · ${shownPath.split('/').pop()}`}</Text>
-        {recent.length === 0 ? (
+        {list.length === 0 ? (
           <Text dimColor>等待 Pi 输出…</Text>
         ) : (
-          recent.map((item, i) =>
-            item.startsWith(MARK) ? (
-              <Box key={'c' + i} borderStyle="round" borderColor="cyan" paddingX={1}>
-                <Text color="cyan">{'我 → Pi: ' + item.slice(MARK.length)}</Text>
+          list.map(item =>
+            item.text.startsWith(MARK) ? (
+              <Box key={item.key} borderStyle="round" borderColor="cyan" paddingX={1}>
+                <Text color="cyan">{'我 → Pi: ' + item.text.slice(MARK.length)}</Text>
               </Box>
-            ) : item.startsWith(TOOL) ? (
-              <Text key={'t' + i} dimColor>
-                {item}
+            ) : item.text.startsWith(TOOL) ? (
+              <Text key={item.key} dimColor>
+                {item.text}
               </Text>
             ) : (
-              <Markdown key={'m' + i} text={item} />
+              <Markdown key={item.key} text={item.text} />
             ),
           )
         )}
