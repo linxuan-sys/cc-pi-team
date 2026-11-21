@@ -99,7 +99,10 @@ if p.exists():
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
     except Exception:
-        data = {}
+        try:
+            data = json.loads(p.with_name(p.name + '.bak').read_text(encoding='utf-8'))
+        except Exception:
+            print('BIND_CORRUPT'); raise SystemExit(0)
 cur = data.get(me, '')
 if cur and cur != target:
     print('ALREADY_BOUND:' + cur); raise SystemExit(1)
@@ -115,6 +118,7 @@ PY
 ) || true
 echo "$BIND"
 [ -n "$BIND" ] || { echo "BIND_FAILED"; exit 1; }
+case "$BIND" in BIND_CORRUPT) echo "BIND_CORRUPT"; exit 1;; esac
 ```
 
 - `BOUND` → 回三行：
@@ -128,6 +132,7 @@ echo "$BIND"
 - `NO_SESSION_ID` → 拿不到当前对话的会话 ID，停。
 - `ALREADY_BOUND:<file>` → 当前对话已绑另一条 Pi，先 `/pi-unbind` 再连。
 - `BIND_FAILED` → 绑定表写不进去（锁文件/权限问题），贴错误，停。
+- `BIND_CORRUPT` → 主表和 `.bak` 都读不出，贴错误，停。
 - `BOUND_ELSEWHERE:<id>` → 先问「这条会话已被另一个对话占用，要解绑那边、连到这边吗？」
   - 同意 → 一条命令重绑：
     ```bash
@@ -137,7 +142,7 @@ echo "$BIND"
     SID="${CLAUDE_CODE_SESSION_ID:-}"
     TARGET="<选中的会话文件>"
     OTHER="<另一个会话 ID>"
-    flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT" "$SID" "$TARGET" "$OTHER" <<'PY'
+    BIND=$(flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT" "$SID" "$TARGET" "$OTHER" <<'PY'
 import json, pathlib, sys
 root, me, target, other = sys.argv[1:5]
 if not me:
@@ -148,7 +153,10 @@ if p.exists():
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
     except Exception:
-        data = {}
+        try:
+            data = json.loads(p.with_name(p.name + '.bak').read_text(encoding='utf-8'))
+        except Exception:
+            print('BIND_CORRUPT'); raise SystemExit(0)
 data.pop(other, None)
 data[me] = target
 tmp = p.with_name(p.name + '.tmp')
@@ -156,6 +164,9 @@ tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 tmp.replace(p)
 print('REBOUND')
 PY
+) || { echo "BIND_FAILED"; exit 1; }
+    echo "$BIND"
+    [ "$BIND" = "REBOUND" ] || exit 1
     ```
     然后回「已把那边解绑并连到这边。」
   - 不同意 → 停，什么都不改。

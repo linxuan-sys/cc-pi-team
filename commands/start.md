@@ -110,6 +110,46 @@ ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (
 SID="${CLAUDE_CODE_SESSION_ID:-}"
 BOUND=$(jq -r --arg sid "$SID" '.[$sid] // empty' "$ROOT/pi-bindings.json" 2>/dev/null || true)
 
+# 0) 会话续接兜底：当前 id 没键或键指向的文件已消失时，按工作区认领最近的旧绑定并迁移
+if [ -z "$BOUND" ] || [ ! -f "$BOUND" ]; then
+  BOUND=$(flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT/pi-bindings.json" "$SID" "$PWD_NOW" <<'PY'
+import json, os, pathlib, sys
+f, me, want = sys.argv[1], sys.argv[2], os.path.realpath(sys.argv[3])
+p = pathlib.Path(f)
+data = {}
+if p.exists():
+    try:
+        data = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        try:
+            data = json.loads(p.with_name(p.name + '.bak').read_text(encoding='utf-8'))
+        except Exception:
+            print('BIND_CORRUPT'); raise SystemExit(0)
+best = ''
+bestm = -1
+for k, v in list(data.items()):
+    if not isinstance(v, str) or not v:
+        continue
+    try:
+        head = json.loads(open(v, encoding='utf-8').readline())
+        mt = os.path.getmtime(v)
+    except Exception:
+        continue
+    if os.path.realpath(head.get('cwd', '')) == want and mt > bestm:
+        best, bestm = v, mt
+if best:
+    for k in [k for k, v in data.items() if v == best and k != me]:
+        data.pop(k)
+    data[me] = best
+    tmp = p.with_name(p.name + '.tmp')
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    tmp.replace(p)
+print(best)
+PY
+) || { echo "BIND_FAILED"; exit 1; }
+  case "$BOUND" in BIND_CORRUPT) echo "BIND_CORRUPT"; exit 1;; esac
+fi
+
 # 1) 本对话已绑定 → 直接沿用；顺手清掉本工作区其他活着的 Pi
 if [ -n "$BOUND" ] && [ -f "$BOUND" ]; then
   ID=$(head -1 "$BOUND" | python3 -I -c 'import json,sys;print(json.load(sys.stdin).get("id") or "")')
@@ -262,7 +302,10 @@ if p.exists():
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
     except Exception:
-        data = {}
+        try:
+            data = json.loads(p.with_name(p.name + '.bak').read_text(encoding='utf-8'))
+        except Exception:
+            print('BIND_CORRUPT'); raise SystemExit(0)
 me = os.environ.get('CLAUDE_CODE_SESSION_ID', '')
 if not me:
     print('NO_SESSION_ID'); raise SystemExit(1)
@@ -295,6 +338,7 @@ esac
 
 - `BOUND` → 继续。
 - `NO_PLUGIN` → 插件没装或改名了（`pi@cc-pi-team` 查不到），停。
+- `BIND_CORRUPT` / `BIND_FAILED` → 绑定表损坏或写不进去，贴错误，停。
 - `TASK_TOO_LONG:<bytes>` → 任务书超过 120 KB（Linux 单参数上限 128 KiB），拆成多轮再派。
 - `ALREADY_RUNNING` → 同 ID 已有 Pi 在跑，不要双开；先等它结束或跟用户确认。
 - `PI_DIED` → Pi 启动后立刻退出，贴 `.pi-events.jsonl` 尾部错误，停。
@@ -310,6 +354,7 @@ cd "<工作区>"
 ID=$(cat .pi-session-id)
 IDS="$ID"
 ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+[ -n "$ROOT" ] || { echo "NO_PLUGIN"; exit 1; }
 BOUND=$(jq -r --arg sid "${CLAUDE_CODE_SESSION_ID:-}" '.[$sid] // empty' "$ROOT/pi-bindings.json" 2>/dev/null || true)
 if [ -n "$BOUND" ] && [ -f "$BOUND" ]; then
   H=$(head -1 "$BOUND" | python3 -I -c 'import json,sys;print(json.load(sys.stdin).get("id") or "")')

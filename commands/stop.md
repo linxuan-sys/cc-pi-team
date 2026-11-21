@@ -1,7 +1,7 @@
 ---
 description: Exit Pi team mode, unbind and resume normal work
 argument-hint:
-allowed-tools: Bash(pgrep *) Bash(kill *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *) Bash(printf *) Bash(readlink *) Bash(tr *) Bash(head *)
+allowed-tools: Bash(pgrep *) Bash(kill *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *) Bash(printf *) Bash(readlink *) Bash(tr *) Bash(head *) Bash(pwd *)
 disable-model-invocation: true
 ---
 
@@ -17,16 +17,40 @@ ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (
 [ -n "$ROOT" ] || { echo "NO_PLUGIN"; exit 1; }
 F="$ROOT/pi-bindings.json"
 SID="${CLAUDE_CODE_SESSION_ID:-}"
-OUT=$(python3 -I - "$F" "$SID" <<'PY'
-import json, pathlib, sys
-p = pathlib.Path(sys.argv[1]); sid = sys.argv[2]
+OUT=$(flock "$ROOT/.pi-bindings.lock" python3 -I - "$F" "$SID" "$(pwd -P)" <<'PY'
+import json, os, pathlib, sys
+p = pathlib.Path(sys.argv[1]); sid = sys.argv[2]; want = os.path.realpath(sys.argv[3])
 data = {}
 if p.exists():
     try:
         data = json.loads(p.read_text(encoding='utf-8'))
     except Exception:
-        data = {}
+        try:
+            data = json.loads(p.with_name(p.name + '.bak').read_text(encoding='utf-8'))
+        except Exception:
+            print('BIND_CORRUPT'); raise SystemExit(0)
 sf = data.get(sid, '')
+if not sf:
+    best = ''
+    bestm = -1
+    for v in list(data.values()):
+        if not isinstance(v, str) or not v:
+            continue
+        try:
+            head = json.loads(open(v, encoding='utf-8').readline())
+            mt = os.path.getmtime(v)
+        except Exception:
+            continue
+        if os.path.realpath(head.get('cwd', '')) == want and mt > bestm:
+            best, bestm = v, mt
+    if best:
+        for k in [k for k, v in data.items() if v == best and k != sid]:
+            data.pop(k)
+        data[sid] = best
+        tmp = p.with_name(p.name + '.tmp')
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        tmp.replace(p)
+        sf = best
 pi_id = cwd = ''
 if sf:
     try:
@@ -36,10 +60,11 @@ if sf:
         pass
 print(sf); print(pi_id); print(cwd)
 PY
-)
+) || { echo "BIND_FAILED"; exit 1; }
 SESSION_FILE=$(printf '%s\n' "$OUT" | sed -n 1p)
 PI_ID=$(printf '%s\n' "$OUT" | sed -n 2p)
 WORKSPACE=$(printf '%s\n' "$OUT" | sed -n 3p)
+if [ "$SESSION_FILE" = "BIND_CORRUPT" ]; then echo "BIND_CORRUPT"; exit 1; fi
 if [ -z "$SESSION_FILE" ]; then echo "NOT_BOUND"; exit 0; fi
 [ -n "$PI_ID" ] || { PI_ID=$(basename "$SESSION_FILE" .jsonl); PI_ID=${PI_ID##*_}; }
 FID=$(basename "$SESSION_FILE" .jsonl); FID=${FID##*_}
@@ -49,30 +74,29 @@ for p in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
   sid=$(tr '\0' '\n' < "/proc/$p/cmdline" 2>/dev/null | sed -n 's/^--session-id=//p; /^--session-id$/{n;p;}' | head -1)
   if [ "$sid" = "$PI_ID" ] || [ "$sid" = "$FID" ]; then PIDS="$PIDS $p"; fi
 done
+alive() {
+  for p in $PIDS; do
+    st=$(sed -n 's/^[0-9]* ([^)]*) \(.\) .*/\1/p' "/proc/$p/stat" 2>/dev/null)
+    if [ -n "$st" ] && [ "$st" != Z ] && [ "$st" != X ]; then return 0; fi
+  done
+  return 1
+}
 if [ -n "$PIDS" ]; then
   for p in $PIDS; do kill "$p" 2>/dev/null || true; done
   for i in $(seq 1 50); do
-    A=0
-    for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then A=1; fi; done
-    if [ "$A" = "0" ]; then break; fi
+    if ! alive; then break; fi
     sleep 0.1
   done
-  A=0
-  for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then A=1; fi; done
-  if [ "$A" = "1" ]; then
+  if alive; then
     for p in $PIDS; do kill -KILL "$p" 2>/dev/null || true; done
     for i in $(seq 1 20); do
-      A=0
-      for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then A=1; fi; done
-      if [ "$A" = "0" ]; then break; fi
+      if ! alive; then break; fi
       sleep 0.1
     done
   fi
 fi
-A=0
-for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then A=1; fi; done
-if [ "$A" = "1" ]; then echo "STILL_RUNNING"; exit 1; fi
-tmp=$(mktemp -p "$(dirname "$F")")
+if alive; then echo "STILL_RUNNING"; exit 1; fi
+tmp=$(mktemp -p "${F%/*}")
 trap 'rm -f "$tmp"' EXIT
 flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" "del(.[$sid])" "$2" > "$3" && mv "$3" "$2"' _ "$SID" "$F" "$tmp"
 echo "UNBOUND"
@@ -83,6 +107,7 @@ echo "WORKSPACE=$WORKSPACE"
 
 - `NOT_BOUND` → 回「当前对话本来就没绑定 Pi，跳过」。
 - `NO_PLUGIN` → 插件没装或改名了（`pi@cc-pi-team` 查不到），停。
+- `BIND_CORRUPT` / `BIND_FAILED` → 绑定表损坏或写不进去，贴错误，停。
 - `STILL_RUNNING` → SIGTERM/SIGKILL 都没杀掉，**不解绑**，如实告诉用户进程还在。
 - `UNBOUND` → 解绑成功，面板 1 秒内清空。
 

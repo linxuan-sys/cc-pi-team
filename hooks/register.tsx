@@ -29,6 +29,8 @@ const lines = atom({ plugin: 'pi', key: 'lines' } as const, [] as string[], {
 })
 
 let shownPath = ''
+let sessionCwd = ''
+let brokenLogged = false
 let primed = false
 let lastSize = -1
 let lastMtime = -1
@@ -136,21 +138,66 @@ async function skipOversizeLine($: any, target: string, from: number, to: number
   return to
 }
 
-async function boundPath($: any): Promise<string> {
+async function piFile($: any, home: string, p: string): Promise<{ ok: boolean; cwd: string; mtime: number }> {
   try {
-    const self = await $.session.id()
-    const map = JSON.parse(await $.fs.read(await bindingsFile($)))
-    const p = map?.[self]
-    if (typeof p !== 'string' || !p.trim()) return ''
-    const st = await $.fs.stat(p.trim(), { resolve: true })
-    if (st.kind !== 'file') return ''
+    const st = await $.fs.stat(p, { resolve: true })
+    if (st.kind !== 'file') return { ok: false, cwd: '', mtime: 0 }
     const real = String((st as any).realPath ?? '')
-    const home = await $.env.get('HOME')
-    if (!home || !real.startsWith(`${home}/.pi/agent/sessions/`) || !real.endsWith('.jsonl')) return ''
-    return p.trim()
+    if (!home || !real.startsWith(`${home}/.pi/agent/sessions/`) || !real.endsWith('.jsonl')) return { ok: false, cwd: '', mtime: 0 }
+    const head = await $.fs.read(p, { length: 4096 })
+    const d = JSON.parse(String(head).split('\n')[0])
+    return { ok: true, cwd: String(d.cwd ?? ''), mtime: Number((st as any).mtimeMs ?? 0) }
   } catch {
-    return ''
+    return { ok: false, cwd: '', mtime: 0 }
   }
+}
+
+// 主表坏了先试 .bak；两者都读不出才算损坏
+async function readBindings($: any): Promise<{ map: Record<string, string>; broken: boolean }> {
+  const file = await bindingsFile($)
+  try {
+    return { map: JSON.parse(await $.fs.read(file)), broken: false }
+  } catch {
+    try {
+      return { map: JSON.parse(await $.fs.read(`${file}.bak`)), broken: false }
+    } catch {
+      return { map: {}, broken: true }
+    }
+  }
+}
+
+async function boundPath($: any): Promise<string> {
+  const self = await $.session.id()
+  const { map, broken } = await readBindings($)
+  if (broken && !brokenLogged) {
+    brokenLogged = true
+    try {
+      await $.ui.log('pi-pane: 绑定表不可读（主表和 .bak 都坏了）', { to: 'debug' })
+    } catch {
+      // 日志失败不影响面板
+    }
+  }
+  const home = await $.env.get('HOME')
+  if (!home) return ''
+  const p = map?.[self]
+  if (typeof p === 'string' && p.trim()) {
+    const info = await piFile($, home, p.trim())
+    if (info.ok) return p.trim()
+  }
+  // CC 会话续接（--fork-session）会换 session id，旧键失效；
+  // 按当前工作区回退到最近修改的已绑定 Pi 会话（一个工作区只跑一个 Pi）。
+  if (!sessionCwd) return ''
+  let best = ''
+  let bestM = -1
+  for (const v of Object.values(map ?? {})) {
+    if (typeof v !== 'string' || !v.trim()) continue
+    const info = await piFile($, home, v.trim())
+    if (info.ok && info.cwd === sessionCwd && info.mtime > bestM) {
+      best = v.trim()
+      bestM = info.mtime
+    }
+  }
+  return best
 }
 
 function reset() {
@@ -267,6 +314,8 @@ function startTick($: any) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    sessionCwd = String((e as any)?.cwd ?? '')
+    brokenLogged = false
     await $.command.register({
       name: 'pi-pane',
       description: 'Open the Pi output pane',
@@ -308,16 +357,42 @@ export const register: Register = on => {
 
   on('command.run', { command: 'pi-unbind' }, async $ => {
     const self = await $.session.id()
-    let map: Record<string, string> = {}
-    try {
-      map = JSON.parse(await $.fs.read(await bindingsFile($)))
-    } catch {
-      map = {}
+    const file = await bindingsFile($)
+    const { map, broken } = await readBindings($)
+    if (broken) return { text: '绑定表损坏（主表和 .bak 都不可读），未解绑' }
+    let key = self
+    let old = map[key]
+    // 续接兜底：当前 id 没键时，按工作区认领最近的旧键
+    if (!old && sessionCwd) {
+      const home = await $.env.get('HOME')
+      if (home) {
+        let best = ''
+        let bestKey = ''
+        let bestM = -1
+        for (const [k, v] of Object.entries(map)) {
+          if (typeof v !== 'string' || !v.trim()) continue
+          const info = await piFile($, home, v.trim())
+          if (info.ok && info.cwd === sessionCwd && info.mtime > bestM) {
+            best = v.trim()
+            bestKey = k
+            bestM = info.mtime
+          }
+        }
+        if (best) {
+          key = bestKey
+          old = best
+        }
+      }
     }
-    const old = map[self]
     if (!old) return { text: '当前对话本来就没绑定 Pi' }
-    delete map[self]
-    await $.fs.write(await bindingsFile($), JSON.stringify(map, null, 2))
+    const oldJson = JSON.stringify(map, null, 2)
+    delete map[key]
+    try {
+      await $.fs.write(`${file}.bak`, oldJson)
+    } catch {
+      // 备份失败不阻塞解绑
+    }
+    await $.fs.write(file, JSON.stringify(map, null, 2))
     shownPath = ''
     reset()
     await update($, lines, () => [])

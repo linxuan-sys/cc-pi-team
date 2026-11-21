@@ -95,6 +95,12 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
   (old sessions); commands read the header id when resolving bindings.
   Pi compaction starts a new session file, so the pane and binding can stay
   on the old history — re-run `/pi:connect` and pick the newest session.
+- Type-checking needs the local `.claude-plugin/types` engine stubs, which are
+  not tracked; a fresh clone can't run `tsc` (runtime doesn't need it).
+- After a Claude Code session fork (`--fork-session`), the session id changes:
+  the pane and commands fall back to the newest bound Pi session in the same
+  workspace. The bindings file lives in the plugin root, so a marketplace
+  reinstall can move it; `/pi:connect` re-attaches if needed.
 - One process with several conversations: the pane follows the last bound session.
 - Tables are drawn by the skins plugin; without it the pane falls back to plain markdown.
 
@@ -190,3 +196,5 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 - 一个进程多个对话时，面板跟随最后一个绑定的会话。
 - 表格由 skins 插件渲染；没有 skins 时退回普通 markdown。
 - 已知限制：Pi 旧会话可能出现「文件名后缀 ≠ 首行 header id」，命令读绑定时以 header id 为准；Pi 压缩（compaction）会新建会话文件，面板和绑定可能停在旧文件上，重跑 `/pi:connect` 选最新的那条会话即可恢复。
+- 类型检查依赖本机 `.claude-plugin/types` 引擎类型（不随仓库分发）；新克隆跑不了 `tsc`，插件运行不依赖它。
+- CC 会话续接（`--fork-session`）换 session id 后，面板和命令会按工作区回退到最近绑定的 Pi 会话；绑定表在插件根目录，marketplace 重装可能换路径，必要时 `/pi:connect` 重连。
