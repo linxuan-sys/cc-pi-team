@@ -1,7 +1,7 @@
 ---
 description: Exit Pi team mode, unbind and resume normal work
 argument-hint:
-allowed-tools: Bash(pkill *) Bash(pgrep *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *) Bash(printf *)
+allowed-tools: Bash(pgrep *) Bash(kill *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *) Bash(printf *) Bash(readlink *) Bash(tr *) Bash(head *)
 disable-model-invocation: true
 ---
 
@@ -42,23 +42,36 @@ PI_ID=$(printf '%s\n' "$OUT" | sed -n 2p)
 WORKSPACE=$(printf '%s\n' "$OUT" | sed -n 3p)
 if [ -z "$SESSION_FILE" ]; then echo "NOT_BOUND"; exit 0; fi
 [ -n "$PI_ID" ] || { PI_ID=$(basename "$SESSION_FILE" .jsonl); PI_ID=${PI_ID##*_}; }
-if [ -n "$PI_ID" ]; then
-  pkill -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1 || true
+FID=$(basename "$SESSION_FILE" .jsonl); FID=${FID##*_}
+PIDS=""
+for p in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
+  [ "$(basename "$(readlink "/proc/$p/exe" 2>/dev/null)")" = pi ] || continue
+  sid=$(tr '\0' '\n' < "/proc/$p/cmdline" 2>/dev/null | sed -n 's/^--session-id=//p; /^--session-id$/{n;p;}' | head -1)
+  if [ "$sid" = "$PI_ID" ] || [ "$sid" = "$FID" ]; then PIDS="$PIDS $p"; fi
+done
+if [ -n "$PIDS" ]; then
+  for p in $PIDS; do kill "$p" 2>/dev/null || true; done
   for i in $(seq 1 50); do
-    pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1 || break
+    A=0
+    for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then A=1; fi; done
+    if [ "$A" = "0" ]; then break; fi
     sleep 0.1
   done
-  if pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1; then
-    pkill -KILL -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1 || true
+  A=0
+  for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then A=1; fi; done
+  if [ "$A" = "1" ]; then
+    for p in $PIDS; do kill -KILL "$p" 2>/dev/null || true; done
     for i in $(seq 1 20); do
-      pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1 || break
+      A=0
+      for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then A=1; fi; done
+      if [ "$A" = "0" ]; then break; fi
       sleep 0.1
     done
   fi
 fi
-if [ -n "$PI_ID" ] && pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1; then
-  echo "STILL_RUNNING"; exit 1
-fi
+A=0
+for p in $PIDS; do if kill -0 "$p" 2>/dev/null; then A=1; fi; done
+if [ "$A" = "1" ]; then echo "STILL_RUNNING"; exit 1; fi
 tmp=$(mktemp -p "$(dirname "$F")")
 trap 'rm -f "$tmp"' EXIT
 flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" "del(.[$sid])" "$2" > "$3" && mv "$3" "$2"' _ "$SID" "$F" "$tmp"

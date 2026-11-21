@@ -1,7 +1,7 @@
 ---
 description: Review code with Pi (read-only task), fix and re-review until it passes
 argument-hint: [审查目标，可空]
-allowed-tools: Bash(pi *) Bash(setsid *) Bash(nohup *) Bash(pgrep *) Bash(pkill *) Bash(seq *) Bash(sleep *) Bash(set *) Bash(claude plugin list *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(head *) Bash(basename *) Bash(echo *) Bash(readlink *) Bash(sed *) Bash(tr *) Bash(kill *) Bash(pwd *) Bash(printf *) Read Grep Glob Write Edit AskUserQuestion
+allowed-tools: Bash(pi *) Bash(setsid *) Bash(nohup *) Bash(pgrep *) Bash(seq *) Bash(sleep *) Bash(set *) Bash(claude plugin list *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(git branch *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(head *) Bash(basename *) Bash(echo *) Bash(readlink *) Bash(sed *) Bash(tr *) Bash(kill *) Bash(pwd *) Bash(printf *) Read Grep Glob Write Edit AskUserQuestion
 disable-model-invocation: true
 ---
 
@@ -86,26 +86,31 @@ BOUND=$(jq -r --arg sid "$SID" '.[$sid] // empty' "$ROOT/pi-bindings.json" 2>/de
 # 1) 本对话已绑定 → 沿用；清掉本工作区其他活着的 Pi
 if [ -n "$BOUND" ] && [ -f "$BOUND" ]; then
   ID=$(head -1 "$BOUND" | python3 -I -c 'import json,sys;print(json.load(sys.stdin).get("id") or "")')
-  [ -n "$ID" ] || { ID=$(basename "$BOUND" .jsonl); ID=${ID##*_}; }
+  FID=$(basename "$BOUND" .jsonl); FID=${FID##*_}
+  [ -n "$ID" ] || ID=$FID
   echo "$ID" > .pi-session-id
-  for pid in $(pgrep -f -- '(^|/)pi( |$).*--session-id[= ]' 2>/dev/null); do
+  for pid in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
+    [ "$(basename "$(readlink "/proc/$pid/exe" 2>/dev/null)")" = pi ] || continue
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$PWD_NOW" ] || continue
-    sid=$(printf '%s' "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" | sed -n 's/.*--session-id[= ]\([^ ]*\).*/\1/p')
-    [ -n "$sid" ] && [ "$sid" != "$ID" ] && { kill "$pid" 2>/dev/null || true; sleep 0.2; }
+    sid=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | sed -n 's/^--session-id=//p; /^--session-id$/{n;p;}' | head -1)
+    [ -n "$sid" ] && [ "$sid" != "$ID" ] && [ "$sid" != "$FID" ] && { kill "$pid" 2>/dev/null || true; sleep 0.2; }
   done
-  if pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$ID" >/dev/null 2>&1; then
-    echo "BOUND_RUNNING:$ID"
-  else
-    echo "BOUND_IDLE:$ID"
-  fi
+  RUNNING=0
+  for pid in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
+    [ "$(basename "$(readlink "/proc/$pid/exe" 2>/dev/null)")" = pi ] || continue
+    sid=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | sed -n 's/^--session-id=//p; /^--session-id$/{n;p;}' | head -1)
+    { [ "$sid" = "$ID" ] || [ "$sid" = "$FID" ]; } && { RUNNING=1; break; }
+  done
+  [ "$RUNNING" = 1 ] && echo "BOUND_RUNNING:$ID" || echo "BOUND_IDLE:$ID"
   exit 0
 fi
 
 # 2) 未绑定 → 看本工作区有没有在跑的 Pi
 RUNNING=""
-for pid in $(pgrep -f -- '(^|/)pi( |$).*--session-id[= ]' 2>/dev/null); do
+for pid in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
+  [ "$(basename "$(readlink "/proc/$pid/exe" 2>/dev/null)")" = pi ] || continue
   [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$PWD_NOW" ] || continue
-  sid=$(printf '%s' "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" | sed -n 's/.*--session-id[= ]\([^ ]*\).*/\1/p')
+  sid=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | sed -n 's/^--session-id=//p; /^--session-id$/{n;p;}' | head -1)
   [ -n "$sid" ] && { RUNNING=$sid; break; }
 done
 echo "RUNNING=$RUNNING"
@@ -116,7 +121,7 @@ echo "RUNNING=$RUNNING"
 - **`BOUND_RUNNING:<id>`** → 先跑第 5 节等待，它退出后再进第 4 节启动审查。
 - **`RUNNING` 非空** → 采用这条会话：写 `.pi-session-id`，找到 cwd 匹配的会话文件先跑 4.2 绑定（面板能看到），再等它退出、进第 4 节启动审查：
   ```bash
-  FILE=$(python3 -I - "$RUNNING" "$PWD_NOW" <<'PY'
+  SCAN=$(python3 -I - "$RUNNING" "$PWD_NOW" <<'PY'
 import glob, json, os, sys
 sid, want = sys.argv[1], os.path.realpath(sys.argv[2])
 for f in glob.glob(os.path.expanduser('~/.pi/agent/sessions/*/*.jsonl')):
@@ -124,16 +129,22 @@ for f in glob.glob(os.path.expanduser('~/.pi/agent/sessions/*/*.jsonl')):
         head = json.loads(open(f, encoding='utf-8').readline())
     except Exception:
         continue
-    if head.get('id') == sid and os.path.realpath(head.get('cwd', '')) == want:
-        print(f); break
+    name = os.path.basename(f)[:-6].rsplit('_', 1)[-1]
+    if (head.get('id') == sid or name == sid) and os.path.realpath(head.get('cwd', '')) == want:
+        print('FILE=' + f)
+        print('ID=' + (head.get('id') or sid))
+        break
 PY
 )
+  FILE=$(printf '%s\n' "$SCAN" | sed -n 's/^FILE=//p')
+  HID=$(printf '%s\n' "$SCAN" | sed -n 's/^ID=//p')
   [ -n "$FILE" ] || { echo "NO_SESSION"; exit 1; }
-  echo "$RUNNING" > .pi-session-id
+  [ -n "$HID" ] || HID=$RUNNING
+  echo "$HID" > .pi-session-id
   ```
 - **`RUNNING` 为空** → 用 `AskUserQuestion` 问「这个工作区没有正在跑的 Pi，要新开一个吗？」：
   1. **是，新开一个 Pi** → `ID=$(python3 -I -c "import uuid;print(uuid.uuid4())")`，写 `.pi-session-id`，进第 4 节。
-  2. **否，用已有对话** → 执行 `/pi:connect` 的流程（列该工作区及子目录的 Pi 会话，用户回编号，写绑定）；绑定后从 `pi-bindings.json` 取回 ID 写进 `.pi-session-id`，再进第 4 节启动审查。
+  2. **否，用已有对话** → 执行 `/pi:connect` 的流程（列该工作区及子目录的 Pi 会话，用户回编号，写绑定）；绑定后取会话文件首行的 header id 写进 `.pi-session-id`，再进第 4 节启动审查。
 
 ## 4. 启动并绑定
 
@@ -145,30 +156,55 @@ cd "<工作区>"
 ID=$(cat .pi-session-id)
 SZ=$(python3 -I -c 'import os,sys;print(os.path.getsize(sys.argv[1]))' .pi-review-task.txt)
 [ "$SZ" -le 120000 ] || { echo "TASK_TOO_LONG:$SZ"; exit 1; }
-if pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$ID" >/dev/null 2>&1; then
-  echo "ALREADY_RUNNING"; exit 1
-fi
+ALREADY=0
+for p in $(pgrep -f -- "--session-id[= ]$ID" 2>/dev/null); do
+  [ "$(basename "$(readlink "/proc/$p/exe" 2>/dev/null)")" = pi ] && { ALREADY=1; break; }
+done
+[ "$ALREADY" = "1" ] && { echo "ALREADY_RUNNING"; exit 1; }
 START=$(python3 -I -c 'import time;print(int(time.time()))')
 setsid nohup pi -p --approve --mode json \
   --session-id "$ID" "$(cat .pi-review-task.txt)" > .pi-events.jsonl 2>&1 < /dev/null &
 FILE=""
 for i in $(seq 1 300); do
-  for f in ~/.pi/agent/sessions/*/*_${ID}.jsonl; do
-    [ -f "$f" ] || continue
-    MT=$(python3 -I -c 'import os,sys;print(int(os.path.getmtime(sys.argv[1])))' "$f")
-    [ "$MT" -ge "$START" ] || continue
-    if head -1 "$f" | python3 -I -c 'import json,sys;d=json.load(sys.stdin);sys.exit(0 if d.get("id")==sys.argv[1] and d.get("cwd")==sys.argv[2] else 1)' "$ID" "$(pwd -P)"; then
-      FILE=$f; break
-    fi
+  SCAN=$(python3 -I - "$ID" "$(pwd -P)" "$START" <<'PY'
+import glob, json, os, sys
+sid, want, start = sys.argv[1], os.path.realpath(sys.argv[2]), int(sys.argv[3])
+fresh = old = ''
+for f in glob.glob(os.path.expanduser('~/.pi/agent/sessions/*/*.jsonl')):
+    try:
+        head = json.loads(open(f, encoding='utf-8').readline())
+        mt = int(os.path.getmtime(f))
+    except Exception:
+        continue
+    if head.get('id') != sid or os.path.realpath(head.get('cwd', '')) != want:
+        continue
+    if mt >= start:
+        fresh = f
+    else:
+        old = f
+print('FRESH=' + fresh)
+print('OLD=' + old)
+PY
+)
+  FRESH=$(printf '%s\n' "$SCAN" | sed -n 's/^FRESH=//p')
+  OLD=$(printf '%s\n' "$SCAN" | sed -n 's/^OLD=//p')
+  if [ -n "$FRESH" ]; then FILE=$FRESH; break; fi
+  ALIVE=0
+  for p in $(pgrep -f -- "--session-id[= ]$ID" 2>/dev/null); do
+    [ "$(basename "$(readlink "/proc/$p/exe" 2>/dev/null)")" = pi ] && { ALIVE=1; break; }
   done
-  [ -n "$FILE" ] && break
-  if [ "$i" -gt 25 ] && ! pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$ID" >/dev/null 2>&1; then
+  if [ "$i" -gt 25 ] && [ "$ALIVE" = "0" ]; then
     echo "PI_DIED"; exit 1
+  fi
+  if [ -n "$OLD" ] && [ "$ALIVE" = "1" ] && [ "$i" -gt 50 ]; then
+    FILE=$OLD; break
   fi
   sleep 0.2
 done
 if [ -z "$FILE" ]; then
-  pkill -f -- "(^|/)pi( |\$).*--session-id[= ]$ID" >/dev/null 2>&1 || true
+  for p in $(pgrep -f -- "--session-id[= ]$ID" 2>/dev/null); do
+    [ "$(basename "$(readlink "/proc/$p/exe" 2>/dev/null)")" = pi ] && kill "$p" 2>/dev/null || true
+  done
   echo "NO_SESSION"
   exit 1
 fi
@@ -216,7 +252,11 @@ echo "$BIND"
 case "$BIND" in
   BOUND) echo "FILE=$FILE" ;;
   *)
-    [ "$LAUNCHED" = "1" ] && pkill -f -- "(^|/)pi( |\$).*--session-id[= ]$(cat .pi-session-id)" >/dev/null 2>&1
+    if [ "$LAUNCHED" = "1" ]; then
+      for p in $(pgrep -f -- "--session-id[= ]$(cat .pi-session-id)" 2>/dev/null); do
+        [ "$(basename "$(readlink "/proc/$p/exe" 2>/dev/null)")" = pi ] && kill "$p" 2>/dev/null || true
+      done
+    fi
     exit 1
     ;;
 esac
@@ -237,7 +277,26 @@ esac
 ```bash
 cd "<工作区>"
 ID=$(cat .pi-session-id)
-while pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$ID" >/dev/null 2>&1; do sleep 2; done
+IDS="$ID"
+ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+BOUND=$(jq -r --arg sid "${CLAUDE_CODE_SESSION_ID:-}" '.[$sid] // empty' "$ROOT/pi-bindings.json" 2>/dev/null || true)
+if [ -n "$BOUND" ] && [ -f "$BOUND" ]; then
+  H=$(head -1 "$BOUND" | python3 -I -c 'import json,sys;print(json.load(sys.stdin).get("id") or "")')
+  if [ "$H" = "$ID" ]; then
+    F=$(basename "$BOUND" .jsonl); F=${F##*_}
+    [ "$F" != "$ID" ] && IDS="$IDS $F"
+  fi
+fi
+while :; do
+  ALIVE=0
+  for id in $IDS; do
+    for p in $(pgrep -f -- "--session-id[= ]$id" 2>/dev/null); do
+      [ "$(basename "$(readlink "/proc/$p/exe" 2>/dev/null)")" = pi ] && { ALIVE=1; break 2; }
+    done
+  done
+  [ "$ALIVE" = "0" ] && break
+  sleep 2
+done
 echo "PI_DONE"
 ```
 

@@ -1,7 +1,7 @@
 ---
 description: Connect this conversation to an existing Pi session
 argument-hint: [工作目录]
-allowed-tools: Bash(ls *) Bash(cat *) Bash(head *) Bash(dirname *) Bash(python3 *) Bash(jq *) Bash(claude plugin list *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(echo *) Bash(set *) Bash(printf *) Bash(bash *) Bash(rm *)
+allowed-tools: Bash(python3 *) Bash(jq *) Bash(claude plugin list *) Bash(flock *) Bash(echo *) Bash(set *)
 disable-model-invocation: true
 ---
 
@@ -114,6 +114,7 @@ print('BOUND')
 PY
 ) || true
 echo "$BIND"
+[ -n "$BIND" ] || { echo "BIND_FAILED"; exit 1; }
 ```
 
 - `BOUND` → 回三行：
@@ -125,7 +126,8 @@ echo "$BIND"
   ```
 - `NO_PLUGIN` → 插件没装或改名了（`pi@cc-pi-team` 查不到），停。
 - `NO_SESSION_ID` → 拿不到当前对话的会话 ID，停。
-- `ALREADY_BOUND:<file>` → 当前对话已绑另一条 Pi，先 `/pi:unbind` 再连。
+- `ALREADY_BOUND:<file>` → 当前对话已绑另一条 Pi，先 `/pi-unbind` 再连。
+- `BIND_FAILED` → 绑定表写不进去（锁文件/权限问题），贴错误，停。
 - `BOUND_ELSEWHERE:<id>` → 先问「这条会话已被另一个对话占用，要解绑那边、连到这边吗？」
   - 同意 → 一条命令重绑：
     ```bash
@@ -141,7 +143,12 @@ root, me, target, other = sys.argv[1:5]
 if not me:
     print('NO_SESSION_ID'); raise SystemExit(1)
 p = pathlib.Path(root) / 'pi-bindings.json'
-data = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+data = {}
+if p.exists():
+    try:
+        data = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        data = {}
 data.pop(other, None)
 data[me] = target
 tmp = p.with_name(p.name + '.tmp')
