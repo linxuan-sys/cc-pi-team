@@ -47,7 +47,10 @@ function parseEntries(raw: string): Array<{ key: string; text: string }> {
     if (d?.type !== 'message') continue
     const m = d.message ?? {}
     const mid = String(d.id ?? '')
-    ;(m.content ?? []).forEach((b: any, i: number) => {
+    // system 消息的 content 常常是字符串；不是数组就直接跳过，别再让整个解析炸掉
+    if (m.role !== 'assistant' && m.role !== 'user') continue
+    if (!Array.isArray(m.content)) continue
+    m.content.forEach((b: any, i: number) => {
       const key = `${mid}:${i}`
       if (b?.type === 'toolCall' && m.role === 'assistant') {
         const cmd = b.arguments?.command ?? b.arguments?.path ?? ''
