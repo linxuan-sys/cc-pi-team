@@ -9,6 +9,7 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 - `/pi:start` — team mode: Claude plans, Pi implements, Claude reviews and commits
 - `/pi:review` — Pi reviews code read-only, Claude fixes, re-review until it passes
 - `/pi:stop` — leave team mode, unbind the conversation
+- `/pi:connect` — connect this conversation to an existing Pi session (asks for the working directory, lists sessions, you pick one)
 - `/pi-pane` — open the Pi output pane
 - `/pi-unbind` — unbind this conversation from its Pi session
 
@@ -75,6 +76,7 @@ Claude ──acpx──> pi-acp ──> Pi
 | `commands/start.md` | `/pi:start` prompt |
 | `commands/review.md` | `/pi:review` prompt |
 | `commands/stop.md` | `/pi:stop` prompt |
+| `commands/connect.md` | `/pi:connect` prompt: pick an existing Pi session to bind |
 | `hooks/hooks.json` | Points the engine at the code entry |
 | `hooks/register.tsx` | Registers `/pi-pane` and `/pi-unbind`, polls and renders the pane |
 | `types/index.d.ts` | Plugin state declaration |
@@ -102,6 +104,7 @@ Claude ──acpx──> pi-acp ──> Pi
 - `/pi:start` —— 团队模式：Claude 出计划，Pi 实现，Claude 审核并提交
 - `/pi:review` —— Pi 只读审查代码，Claude 按结论修复，再审直到通过
 - `/pi:stop` —— 退出团队模式，解除绑定
+- `/pi:connect` —— 连接一段已有的 Pi 会话（先问工作目录，列出该目录下所有会话，你选一条）
 - `/pi-pane` —— 打开 Pi 输出面板
 - `/pi-unbind` —— 解除当前对话与 Pi 的绑定
 
@@ -165,6 +168,7 @@ Claude ──acpx──> pi-acp ──> Pi
 | `commands/start.md` | `/pi:start` 的提示词 |
 | `commands/review.md` | `/pi:review` 的提示词 |
 | `commands/stop.md` | `/pi:stop` 的提示词 |
+| `commands/connect.md` | `/pi:connect` 的提示词：挑一条已有 Pi 会话绑上来 |
 | `hooks/hooks.json` | 指向代码入口 |
 | `hooks/register.tsx` | 注册 `/pi-pane`、`/pi-unbind`，轮询并渲染面板 |
 | `types/index.d.ts` | 插件状态声明 |

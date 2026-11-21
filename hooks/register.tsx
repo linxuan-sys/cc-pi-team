@@ -349,6 +349,7 @@ async function drawPane($: any, e: any) {
       <Box flexDirection="column">
         <Text dimColor>Not bound to a Pi session</Text>
         <Text dimColor>Use /pi:start to begin team mode</Text>
+        <Text dimColor>Use /pi:connect to attach an existing Pi session</Text>
         <Text dimColor>Use /pi:review to review code</Text>
       </Box>
     )
