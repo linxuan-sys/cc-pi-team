@@ -87,9 +87,14 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 - The pane shows the task Claude sent, Pi's assistant text, and Pi's tool call
   titles (not tool output, not thinking).
 - Only one Pi session per conversation, and one workspace at a time.
-- The pane keeps entries in memory; the plugin's only writes are the bindings file, changed by `/pi-unbind` and `/pi:stop`.
+- The pane keeps entries in memory; the plugin writes only the bindings file
+  (changed by `/pi:start`, `/pi:review`, `/pi:connect`, `/pi:stop` and `/pi:unbind`).
 - A single message over 3 MiB (a base64 screenshot, say) is skipped in byte space and shown as one placeholder line; the rest keeps flowing.
 - `/pi-unbind` takes no file lock: operate on one conversation at a time.
+- Known limits: a Pi session file's name suffix can differ from its header id
+  (old sessions); commands read the header id when resolving bindings.
+  Pi compaction starts a new session file, so the pane and binding can stay
+  on the old history — re-run `/pi:connect` and pick the newest session.
 - One process with several conversations: the pane follows the last bound session.
 - Tables are drawn by the skins plugin; without it the pane falls back to plain markdown.
 
@@ -179,9 +184,9 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 - 面板显示三类内容：Claude 发出的任务书、Pi 的正文、Pi 的工具调用标题
   （不显示工具输出，也不显示思考过程）。
 - 一个对话只绑一条 Pi 会话；同一时间只支持一个工作区。
-- 面板内容全部在内存里；插件唯一的写盘是 `/pi-unbind` 和 `/pi:stop` 改绑定表。
+- 面板内容全部在内存里；插件唯一写盘的是绑定表（`/pi:start`、`/pi:review`、`/pi:connect`、`/pi:stop`、`/pi:unbind` 都会改）。
 - 单条消息超过 3 MiB（比如 base64 截图）会在字节空间里跳过，只显示一行"超大消息已跳过"，后续内容照常。
 - `/pi-unbind` 不带文件锁：同一时间只操作一个对话。
 - 一个进程多个对话时，面板跟随最后一个绑定的会话。
 - 表格由 skins 插件渲染；没有 skins 时退回普通 markdown。
-- `/pi-unbind` 不带文件锁，和 `/pi:start`、`/pi:stop` 并发时理论上可能互相覆盖；同一时间只操作一个对话即可避免。
+- 已知限制：Pi 旧会话可能出现「文件名后缀 ≠ 首行 header id」，命令读绑定时以 header id 为准；Pi 压缩（compaction）会新建会话文件，面板和绑定可能停在旧文件上，重跑 `/pi:connect` 选最新的那条会话即可恢复。

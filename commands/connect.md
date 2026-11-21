@@ -1,7 +1,7 @@
 ---
 description: Connect this conversation to an existing Pi session
 argument-hint: [工作目录]
-allowed-tools: Bash(ls *) Bash(cat *) Bash(head *) Bash(dirname *) Bash(python3 *) Bash(jq *) Bash(claude plugin list *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(echo *)
+allowed-tools: Bash(ls *) Bash(cat *) Bash(head *) Bash(dirname *) Bash(python3 *) Bash(jq *) Bash(claude plugin list *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(echo *) Bash(set *) Bash(printf *) Bash(bash *) Bash(rm *)
 disable-model-invocation: true
 ---
 
@@ -16,7 +16,7 @@ disable-model-invocation: true
 ```bash
 python3 -I - "<目录>" <<'PY'
 import glob, json, os, sys
-want = os.path.abspath(os.path.expanduser(sys.argv[1]))
+want = os.path.realpath(os.path.expanduser(sys.argv[1]))
 
 def last_user_text(path):
     last = ''
@@ -43,7 +43,7 @@ for f in glob.glob(os.path.expanduser('~/.pi/agent/sessions/*/*.jsonl')):
             head = json.loads(fh.readline())
     except Exception:
         continue
-    cwd = os.path.abspath(head.get('cwd', ''))
+    cwd = os.path.realpath(head.get('cwd', ''))
     if cwd != want:
         continue
     rows.append((head.get('timestamp', ''), '', last_user_text(f), f))
@@ -55,7 +55,7 @@ if not rows:
                 head = json.loads(fh.readline())
         except Exception:
             continue
-        cwd = os.path.abspath(head.get('cwd', ''))
+        cwd = os.path.realpath(head.get('cwd', ''))
         if not cwd.startswith(want + os.sep):
             continue
         rel = os.path.relpath(cwd, want) + '/'
@@ -85,15 +85,35 @@ PY
 ```bash
 set -eu
 ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
-F="$ROOT/pi-bindings.json"
+[ -n "$ROOT" ] || { echo "NO_PLUGIN"; exit 1; }
 SID="${CLAUDE_CODE_SESSION_ID:-}"
 TARGET="<选中的会话文件>"
-OTHER=$(jq -r --arg sid "$SID" --arg p "$TARGET" 'to_entries[] | select(.value == $p and .key != $sid) | .key' "$F" 2>/dev/null | head -1)
-if [ -n "$OTHER" ]; then echo "BOUND_ELSEWHERE:$OTHER"; exit 0; fi
-tmp=$(mktemp -p "$(dirname "$F")")
-trap 'rm -f "$tmp"' EXIT
-flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" --arg p "$2" ".[\$sid] = \$p" "$3" > "$4" && mv "$4" "$3"' _ "$SID" "$TARGET" "$F" "$tmp"
-echo "BOUND"
+BIND=$(flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT" "$SID" "$TARGET" <<'PY'
+import json, pathlib, sys
+root, me, target = sys.argv[1], sys.argv[2], sys.argv[3]
+if not me:
+    print('NO_SESSION_ID'); raise SystemExit(1)
+p = pathlib.Path(root) / 'pi-bindings.json'
+data = {}
+if p.exists():
+    try:
+        data = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        data = {}
+cur = data.get(me, '')
+if cur and cur != target:
+    print('ALREADY_BOUND:' + cur); raise SystemExit(1)
+others = [k for k, v in data.items() if v == target and k != me]
+if others:
+    print('BOUND_ELSEWHERE:' + others[0]); raise SystemExit(1)
+data[me] = target
+tmp = p.with_name(p.name + '.tmp')
+tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+tmp.replace(p)
+print('BOUND')
+PY
+) || true
+echo "$BIND"
 ```
 
 - `BOUND` → 回三行：
@@ -103,20 +123,32 @@ echo "BOUND"
   2. /pi-pane —— 打开面板看这条会话的历史
   3. /pi:review —— 用它审查代码
   ```
+- `NO_PLUGIN` → 插件没装或改名了（`pi@cc-pi-team` 查不到），停。
+- `NO_SESSION_ID` → 拿不到当前对话的会话 ID，停。
+- `ALREADY_BOUND:<file>` → 当前对话已绑另一条 Pi，先 `/pi:unbind` 再连。
 - `BOUND_ELSEWHERE:<id>` → 先问「这条会话已被另一个对话占用，要解绑那边、连到这边吗？」
   - 同意 → 一条命令重绑：
     ```bash
     set -eu
     ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
-    F="$ROOT/pi-bindings.json"
+    [ -n "$ROOT" ] || { echo "NO_PLUGIN"; exit 1; }
     SID="${CLAUDE_CODE_SESSION_ID:-}"
     TARGET="<选中的会话文件>"
     OTHER="<另一个会话 ID>"
-    tmp=$(mktemp -p "$(dirname "$F")")
-    trap 'rm -f "$tmp"' EXIT
-    flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" "del(.[$sid])" "$2" > "$3" && mv "$3" "$2"' _ "$OTHER" "$F" "$tmp"
-    flock "$ROOT/.pi-bindings.lock" bash -c 'jq --arg sid "$1" --arg p "$2" ".[\$sid] = \$p" "$3" > "$4" && mv "$4" "$3"' _ "$SID" "$TARGET" "$F" "$tmp"
-    echo "REBOUND"
+    flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT" "$SID" "$TARGET" "$OTHER" <<'PY'
+import json, pathlib, sys
+root, me, target, other = sys.argv[1:5]
+if not me:
+    print('NO_SESSION_ID'); raise SystemExit(1)
+p = pathlib.Path(root) / 'pi-bindings.json'
+data = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+data.pop(other, None)
+data[me] = target
+tmp = p.with_name(p.name + '.tmp')
+tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+tmp.replace(p)
+print('REBOUND')
+PY
     ```
     然后回「已把那边解绑并连到这边。」
   - 不同意 → 停，什么都不改。

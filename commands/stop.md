@@ -1,7 +1,7 @@
 ---
 description: Exit Pi team mode, unbind and resume normal work
 argument-hint:
-allowed-tools: Bash(pkill *) Bash(pgrep *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *)
+allowed-tools: Bash(pkill *) Bash(pgrep *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(claude plugin list *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *) Bash(printf *)
 disable-model-invocation: true
 ---
 
@@ -14,6 +14,7 @@ disable-model-invocation: true
 ```bash
 set -e
 ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+[ -n "$ROOT" ] || { echo "NO_PLUGIN"; exit 1; }
 F="$ROOT/pi-bindings.json"
 SID="${CLAUDE_CODE_SESSION_ID:-}"
 OUT=$(python3 -I - "$F" "$SID" <<'PY'
@@ -42,11 +43,21 @@ WORKSPACE=$(printf '%s\n' "$OUT" | sed -n 3p)
 if [ -z "$SESSION_FILE" ]; then echo "NOT_BOUND"; exit 0; fi
 [ -n "$PI_ID" ] || { PI_ID=$(basename "$SESSION_FILE" .jsonl); PI_ID=${PI_ID##*_}; }
 if [ -n "$PI_ID" ]; then
-  pkill -f -- "--session-id[= ]$PI_ID" >/dev/null 2>&1 || true
+  pkill -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1 || true
   for i in $(seq 1 50); do
-    pgrep -f -- "--session-id[= ]$PI_ID" >/dev/null 2>&1 || break
+    pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1 || break
     sleep 0.1
   done
+  if pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1; then
+    pkill -KILL -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1 || true
+    for i in $(seq 1 20); do
+      pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+  fi
+fi
+if [ -n "$PI_ID" ] && pgrep -f -- "(^|/)pi( |\$).*--session-id[= ]$PI_ID" >/dev/null 2>&1; then
+  echo "STILL_RUNNING"; exit 1
 fi
 tmp=$(mktemp -p "$(dirname "$F")")
 trap 'rm -f "$tmp"' EXIT
@@ -58,6 +69,8 @@ echo "WORKSPACE=$WORKSPACE"
 ```
 
 - `NOT_BOUND` → 回「当前对话本来就没绑定 Pi，跳过」。
+- `NO_PLUGIN` → 插件没装或改名了（`pi@cc-pi-team` 查不到），停。
+- `STILL_RUNNING` → SIGTERM/SIGKILL 都没杀掉，**不解绑**，如实告诉用户进程还在。
 - `UNBOUND` → 解绑成功，面板 1 秒内清空。
 
 ## 2. 汇报
