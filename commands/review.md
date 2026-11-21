@@ -1,73 +1,240 @@
 ---
-description: Review code with Pi (read-only), fix and re-review until it passes
+description: Review code with Pi (read-only task), fix and re-review until it passes
 argument-hint: [审查目标，可空]
-allowed-tools: Bash(pi *) Bash(setsid *) Bash(nohup *) Bash(pgrep *) Bash(seq *) Bash(sleep *) Bash(cat *) Bash(cd *) Bash(echo *) Bash(python3 *) Bash(git *) Read Grep Glob Write Edit AskUserQuestion
+allowed-tools: Bash(pi *) Bash(setsid *) Bash(nohup *) Bash(pgrep *) Bash(pkill *) Bash(seq *) Bash(sleep *) Bash(set *) Bash(claude plugin list *) Bash(cd *) Bash(jq *) Bash(flock *) Bash(git init *) Bash(git add *) Bash(git commit *) Bash(git switch *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git rev-parse *) Bash(python3 *) Bash(ls *) Bash(cat *) Bash(head *) Bash(basename *) Bash(echo *) Bash(readlink *) Bash(sed *) Bash(tr *) Read Grep Glob Write Edit AskUserQuestion
 disable-model-invocation: true
 ---
 
-# Pi 审查
+Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -p` 会自动执行工具，`--approve` 还会加载项目本地扩展/设置；陌生仓库先告诉用户。
 
-审查目标：$ARGUMENTS（空 = 当前未提交改动）
+用户说「直接跟她说」→ 用「用户原话说：<原话>」转给 Pi，转完照常复核。
 
-## 1. 任务书
+审查目标：$ARGUMENTS（空 = 当前未提交改动；非 git 仓库 = 整个目录）
 
-写 `.pi-review-task.txt`：
+## 0. 准备仓库与分支
 
-```
-【角色】我是 Claude，你是独立的代码审查者。你不改代码，只找问题。
-【任务】审查：<范围>
-【要求】读完整文件；找逻辑错误、边界、异常、并发、性能、安全、死代码；每条落到 文件:行；不确定标"待确认"。
-【输出】按严重程度：阻断/重要/次要/建议；每条 文件:行 — 问题 — 为什么 — 修复建议；最后结论：通过/有条件通过/不通过。
-【只读】不改项目文件，不暂存，不提交，不推送。
-```
+`/pi:review` 可以单独跑，不依赖 `/pi:start`，所以 git 这一步全部在这里做完：
 
-## 2. 启动并绑定
+1. **不是 git 仓库** → `git init -b pi/team`（默认分支就叫 `pi/team`）→ `git add -A`（排除 `.pi-*`）→ `git commit -m "baseline: before pi review"`。
+2. **已经是 git 仓库** → 有 `pi/team` 就 `git switch pi/team`；没有就 `git switch -c pi/team` 新建。
+3. **记审查起点** → `git rev-parse HEAD > .pi-review-base`。
+4. **有未提交改动** → `git add -A`（排除 `.pi-*`）+ `git commit -m "wip: before pi review"`。必须先记起点再提交，审查范围 `git diff .pi-review-base` 才会包含这些改动。
+5. 只提交本地，不 push 远程；分支只用 `pi/team`。
 
 ```bash
 cd "<工作区>"
-ID=$(cat .pi-session-id 2>/dev/null || python3 -I -c 'import uuid;print(uuid.uuid4())')
-echo "$ID" > .pi-session-id
-pgrep -f -- "--session-id $ID" >/dev/null 2>&1 && { echo "ALREADY_RUNNING"; exit 1; }
-setsid nohup pi -p --approve --mode json --session-id "$ID" \
-  "$(cat .pi-review-task.txt)" > .pi-events.jsonl 2>&1 < /dev/null &
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git init -q -b pi/team
+  git add -A -- . ':(exclude).pi-*'
+  git commit -qm "baseline: before pi review"
+fi
+git rev-parse --verify HEAD >/dev/null 2>&1 || { echo "NO_HEAD"; exit 1; }
+git rev-parse --verify pi/team >/dev/null 2>&1 \
+  && git switch -q pi/team \
+  || { git switch -qc pi/team || { echo "SWITCH_FAILED"; exit 1; }; }
+git rev-parse HEAD > .pi-review-base
+if [ -n "$(git status --porcelain -- . ':(exclude).pi-*')" ]; then
+  git add -A -- . ':(exclude).pi-*'
+  git commit -qm "wip: before pi review"
+fi
+```
+
+- `NO_HEAD`（仓库没有任何提交）/ `SWITCH_FAILED`（切分支失败，通常是有冲突的未提交改动）→ 贴给用户，停。
+- 只提交本地，不 push。
+
+## 1. 范围
+
+- `BASE=$(cat .pi-review-base 2>/dev/null); [ -n "$BASE" ] || BASE=HEAD`
+- `git diff "$BASE"` 非空 → 审这个
+- 为空 → `git show "$BASE"`
+- 非 git 仓库 → 整个目录
+
+## 2. 任务书
+
+写入 `.pi-review-task.txt`：
+
+```
+【角色】我是 Claude，你是独立的代码审查者。你不改代码，只找问题。
+【任务】使用 code-review 技能审查：<上面的审查范围>
+【权限】全部工具可用：可以读文件、跑命令、写临时脚本（放 /tmp）。
+但工作区只读：禁止修改、新建、删除项目里的任何文件。
+【要求】
+1. 先跑 git status / git diff 确认范围，再逐个读相关文件，不要只看 diff 摘要。
+2. 重点检查：逻辑错误、边界条件、异常被吞、资源泄漏、并发竞态、性能问题、安全风险、死代码与无用变量、与项目约定不一致。
+3. 每条问题必须落到具体 文件:行；不确定的标注"待确认"，不要编。
+4. 不要改代码，也不要给整段重写，只给问题与修复建议。
+5. 每轮修复后我都会把改动暂存（git add）。复审时先用 `git status` 和 `git diff` 对比仓库，看这一轮到底改了什么；分支是 `pi/team`。任何情况下你都不能创建分支、不能暂存、不能推送（禁止 git add / git push）。
+【输出】
+按严重程度排序（阻断 / 重要 / 次要 / 建议），每条：
+- 文件:行 — 问题 — 为什么是问题 — 修复建议
+最后给结论：通过 / 有条件通过 / 不通过。
+```
+
+## 3. 定会话
+
+```bash
+cd "<工作区>"
+PWD_NOW=$(pwd -P)
+ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+SID="${CLAUDE_CODE_SESSION_ID:-}"
+BOUND=$(jq -r --arg sid "$SID" '.[$sid] // empty' "$ROOT/pi-bindings.json" 2>/dev/null || true)
+
+# 1) 本对话已绑定 → 沿用；清掉本工作区其他活着的 Pi
+if [ -n "$BOUND" ] && [ -f "$BOUND" ]; then
+  ID=$(basename "$BOUND" .jsonl); ID=${ID##*_}
+  echo "$ID" > .pi-session-id
+  for pid in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
+    [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$PWD_NOW" ] || continue
+    sid=$(printf '%s' "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" | sed -n 's/.*--session-id[= ]\([^ ]*\).*/\1/p')
+    [ -n "$sid" ] && [ "$sid" != "$ID" ] && kill "$pid" 2>/dev/null || true
+  done
+  if pgrep -f -- "--session-id[= ]$ID" >/dev/null 2>&1; then
+    echo "BOUND_RUNNING:$ID"
+  else
+    echo "BOUND_IDLE:$ID"
+  fi
+  exit 0
+fi
+
+# 2) 未绑定 → 看本工作区有没有在跑的 Pi
+RUNNING=""
+for pid in $(pgrep -f -- "--session-id[= ]" 2>/dev/null); do
+  [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$PWD_NOW" ] || continue
+  sid=$(printf '%s' "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" | sed -n 's/.*--session-id[= ]\([^ ]*\).*/\1/p')
+  [ -n "$sid" ] && { RUNNING=$sid; break; }
+done
+echo "RUNNING=$RUNNING"
+```
+
+- **`BOUND_IDLE:<id>`** → 直接进第 4 节，用这条会话启动审查。
+- **`BOUND_RUNNING:<id>`** → 先跑第 5 节等待，它退出后再进第 4 节启动审查。
+- **`RUNNING` 非空** → 采用这条会话：写 `.pi-session-id`，找到 cwd 匹配的会话文件先跑 4.2 绑定（面板能看到），再等它退出、进第 4 节启动审查：
+  ```bash
+  FILE=""
+  for f in ~/.pi/agent/sessions/*/*_${RUNNING}.jsonl; do
+    [ -f "$f" ] || continue
+    if head -1 "$f" | python3 -I -c 'import json,sys;d=json.load(sys.stdin);sys.exit(0 if d.get("cwd")==sys.argv[1] else 1)' "$PWD_NOW"; then
+      FILE=$f; break
+    fi
+  done
+  [ -n "$FILE" ] || { echo "NO_SESSION"; exit 1; }
+  echo "$RUNNING" > .pi-session-id
+  ```
+- **`RUNNING` 为空** → 用 `AskUserQuestion` 问「这个工作区没有正在跑的 Pi，要新开一个吗？」：
+  1. **是，新开一个 Pi** → `ID=$(python3 -I -c "import uuid;print(uuid.uuid4())")`，写 `.pi-session-id`，进第 4 节。
+  2. **否，用已有对话** → 执行 `/pi:connect` 的流程（列该工作区及子目录的 Pi 会话，用户回编号，写绑定）；绑定后从 `pi-bindings.json` 取回 ID 写进 `.pi-session-id`，再进第 4 节启动审查。
+
+## 4. 启动并绑定
+
+### 4.1 启动
+
+```bash
+set -eu
+cd "<工作区>"
+ID=$(cat .pi-session-id)
+setsid nohup pi -p --approve --mode json \
+  --session-id "$ID" "$(cat .pi-review-task.txt)" > .pi-events.jsonl 2>&1 < /dev/null &
 FILE=""
-for i in $(seq 1 100); do
+for i in $(seq 1 300); do
   for f in ~/.pi/agent/sessions/*/*_${ID}.jsonl; do
-    [ -f "$f" ] && { FILE=$f; break; }
+    [ -f "$f" ] || continue
+    if head -1 "$f" | python3 -I -c 'import json,sys;d=json.load(sys.stdin);sys.exit(0 if d.get("cwd")==sys.argv[1] else 1)' "$(pwd -P)"; then
+      FILE=$f; break
+    fi
   done
   [ -n "$FILE" ] && break
   sleep 0.2
 done
-[ -n "$FILE" ] || { echo "NO_SESSION"; exit 1; }
-python3 -I -c 'import json,sys;open(sys.argv[1],"w").write(json.dumps({"file":sys.argv[2]}))' \
-  "$HOME/.claude/pi-bindings.json" "$FILE"
+if [ -z "$FILE" ]; then
+  pkill -f -- "--session-id[= ]$ID" >/dev/null 2>&1 || true
+  echo "NO_SESSION"
+  exit 1
+fi
 echo "FILE=$FILE"
 ```
 
-## 3. 等 Pi 结束
+### 4.2 写绑定
+
+`FILE` 来自 4.1，或第 3 节直接绑定时找到的会话文件；`LAUNCHED` 新开 Pi 填 1，复用已有 Pi 填 0。
+
+```bash
+set -eu
+cd "<工作区>"
+ROOT=$(claude plugin list --json | jq -r '.[] | select(.id=="pi@cc-pi-team") | (.readFromFolder // .installPath)')
+FILE="<会话文件绝对路径>"
+LAUNCHED="<1 或 0>"
+BIND=$(flock "$ROOT/.pi-bindings.lock" python3 -I - "$ROOT" "$FILE" <<'PY'
+import json, os, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / 'pi-bindings.json'
+target = sys.argv[2]
+data = {}
+if p.exists():
+    try:
+        data = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        data = {}
+me = os.environ.get('CLAUDE_CODE_SESSION_ID', '')
+if not me:
+    print('NO_SESSION_ID'); raise SystemExit(1)
+cur = data.get(me, '')
+if cur and cur != target:
+    print('ALREADY_BOUND:' + cur); raise SystemExit(1)
+others = [k for k, v in data.items() if v == target and k != me]
+if others:
+    print('BOUND_ELSEWHERE:' + others[0]); raise SystemExit(1)
+data[me] = target
+tmp = p.parent / (p.name + '.tmp')
+tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+os.replace(tmp, p)
+print('BOUND')
+PY
+) || true
+echo "$BIND"
+case "$BIND" in
+  BOUND) echo "FILE=$FILE" ;;
+  *)
+    [ "$LAUNCHED" = "1" ] && pkill -f -- "--session-id[= ]$(cat .pi-session-id)" >/dev/null 2>&1
+    exit 1
+    ;;
+esac
+```
+
+- `BOUND` → 继续。
+- `NO_SESSION` → 贴 `.pi-events.jsonl` 尾部错误，停。
+- `ALREADY_BOUND:` / `BOUND_ELSEWHERE:` / `NO_SESSION_ID` → 贴给用户，停；session id 变了就用 `/pi:connect` 重新接。
+
+## 5. 等 Pi 结束
+
+后台运行：
 
 ```bash
 cd "<工作区>"
 ID=$(cat .pi-session-id)
-while pgrep -f -- "--session-id $ID" >/dev/null 2>&1; do sleep 2; done
+while pgrep -f -- "--session-id[= ]$ID" >/dev/null 2>&1; do sleep 2; done
 echo "PI_DONE"
 ```
 
-## 4. 复核
+10 分钟被工具杀掉（退出码 -1）不代表 Pi 死了：先 `pgrep`，活着就再挂一次。
 
-读 `.pi-events.jsonl` 的最后一段 assistant text；逐条打开 `文件:行` 核对，属实的保留，误报标注。
+## 6. 复核
 
-## 5. 修复 → 自动复审（不停）
+1. `message_end` 里 `role == "assistant"` 的 text 块 = 报告；`tool_execution_end.result.structuredContent` = 命令输出与退出码。
+2. 逐条打开 `文件:行` 复核：属实保留，报错标「已复核：误报」。
+3. 「Pi 报的」和「我复核过的」分开写。
 
-1. 修完提交到本地 `pi/team`（不 push）：
+## 7. 修复 → 复审
 
+1. 修完暂存，不 commit、不 push：
    ```bash
-   git add -u
+   git add -u -- . ':(exclude).pi-*'
    git add -- "<本轮新增的文件>"
-   git commit -m "pi: 第 N 轮修复"
    ```
+2. 问题清单和修复说明**追加**到 `.pi-review-task.txt`，要求逐条确认并重扫。
+3. 重跑第 3、4、5 节（同一会话 ID 接着跑）。
+4. 通过 → 汇报；不通过 → 再修。最多 5 轮，第 5 轮还不过就如实报告剩余问题。
 
-2. 把问题清单和修复说明追加到 `.pi-review-task.txt`。
-3. **立刻**重跑第 2、3 节（同一会话 ID），复核、再修、再提交。
-4. **中途不要问用户，不要每轮汇报**；只在通过、5 轮上限、或必须用户拍板时停。
-5. 结束时一次性汇报：几轮、每轮修了什么、结论、剩余问题。
+每轮汇报：第几轮、修了什么、它的结论。
+
+## 8. 一个会话
+
+不新建、不重复派单、结束不解绑。
