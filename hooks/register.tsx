@@ -278,11 +278,13 @@ async function drawPane($: any, e: any) {
         {bs.files.length > 1 && bs.files.map((_, i) => (
           <Button
             key={`b${i}`}
-            plain
-            dimColor={i !== bs.idx}
+            label={`${i + 1}`}
+            variant={i === bs.idx ? 'primary' : undefined}
             onPress={() => { selected = i; void update($, binds, () => ({ files: bs.files, idx: i })) }}
           >
-            {`[${i + 1}]`}
+            <Text color={i === bs.idx ? '#cba6f7' : '#82869e'} bold={i === bs.idx}>
+              {`[${i + 1}]`}
+            </Text>
           </Button>
         ))}
       </Box>
