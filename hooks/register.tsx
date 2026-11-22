@@ -203,11 +203,11 @@ async function drawPane($: any, e: any) {
         <Text dimColor>Not bound to a Pi session</Text>
         <Text> </Text>
         <Text color="#7ea898">/pi:start</Text>
-        <Text dimColor>  Claude plans, Pi writes the code, Claude reviews and commits</Text>
+        <Text dimColor>  Claude plans, Pi codes, Claude reviews</Text>
         <Text color="#7ea898">/pi:review</Text>
-        <Text dimColor>  Pi reviews code read-only, Claude fixes until it passes</Text>
+        <Text dimColor>  Pi reviews, Claude fixes</Text>
         <Text color="#7ea898">/pi:connect</Text>
-        <Text dimColor>  attach this conversation to an existing Pi session</Text>
+        <Text dimColor>  bind an existing Pi session</Text>
       </Box>
     )
   const list = raw.map(s => {
