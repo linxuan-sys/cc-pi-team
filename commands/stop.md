@@ -1,10 +1,10 @@
 ---
-description: Exit Pi mode: stop the running headless Pi, optionally unbind
+description: Exit Pi mode: abort and kill every bound Pi process, then optionally unbind
 argument-hint:
 disable-model-invocation: true
 ---
 
-退出 Pi 模式：停掉正在跑的 headless Pi，然后问你要不要解绑。所有提问都用 `AskUserQuestion`。
+退出 Pi 模式：杀掉当前工作区和所有绑定工作区的 Pi 进程，然后问你要不要解绑。所有提问都用 `AskUserQuestion`。
 
 ## 1. 读绑定并停进程
 
