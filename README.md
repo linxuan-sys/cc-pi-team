@@ -14,6 +14,7 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 - `/pi:connect` — connect this conversation to an existing Pi session (asks for the working directory, lists sessions, you pick one)
 - `/pi-pane` — open the Pi output pane
 - `/pi-unbind` — clear all Pi bindings
+- `/pi:clear` — clear temporary Pi runtime files in this workspace
 
 ## Requirements
 
@@ -84,6 +85,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 | `commands/review.md` | `/pi:review` prompt |
 | `commands/steer.md` | `/pi:steer` prompt: send a live course correction |
 | `commands/abort.md` | `/pi:abort` prompt |
+| `commands/clear.md` | `/pi:clear` prompt: remove temporary `.pi-*` files |
 | `commands/stop.md` | `/pi:stop` prompt |
 | `commands/connect.md` | `/pi:connect` prompt: pick an existing Pi session to bind |
 | `hooks/hooks.json` | Points the engine at the code entry |
@@ -124,6 +126,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 - `/pi:connect` —— 连接一段已有的 Pi 会话（先问工作目录，列出该目录下所有会话，你选一条）
 - `/pi-pane` —— 打开 Pi 输出面板
 - `/pi-unbind` —— 清空所有 Pi 绑定
+- `/pi:clear` —— 清理当前工作区的临时 Pi 文件
 
 ## 依赖
 
@@ -187,6 +190,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc（常驻）
 | `commands/review.md` | `/pi:review` 的提示词 |
 | `commands/steer.md` | `/pi:steer` 的提示词：给运行中的 Pi 发纠偏指令 |
 | `commands/abort.md` | `/pi:abort` 的提示词 |
+| `commands/clear.md` | `/pi:clear` 的提示词：清理临时 `.pi-*` 文件 |
 | `commands/stop.md` | `/pi:stop` 的提示词 |
 | `commands/connect.md` | `/pi:connect` 的提示词：挑一条已有 Pi 会话绑上来 |
 | `hooks/hooks.json` | 指向代码入口 |
