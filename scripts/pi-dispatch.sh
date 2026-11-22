@@ -24,8 +24,13 @@ if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null; then
 fi
 
 if [ "$MODE" = "bind" ]; then
-  FILE=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty | if type=="array" then .[] else . end' "$ROOT/pi-bindings.json" 2>/dev/null | tail -1)
-  [ -n "$FILE" ] && [ -f "$FILE" ] || { echo NOT_BOUND; exit 1; }
+  FILE=""
+  while IFS= read -r F; do
+    [ -f "$F" ] || continue
+    CWD=$(head -1 "$F" | jq -r '.cwd // empty')
+    [ "$CWD" = "$WS" ] && { FILE="$F"; break; }
+  done <<< "$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty | if type=="array" then .[] else . end' "$ROOT/pi-bindings.json" 2>/dev/null)"
+  [ -n "$FILE" ] || { echo NOT_BOUND; exit 1; }
   ID=$(head -1 "$FILE" | jq -r '.id // empty')
   [ -n "$ID" ] || { echo NOT_BOUND; exit 1; }
 else
