@@ -58,7 +58,13 @@ function bind(sessionFile) {
   const mapPath = `${ROOT}/pi-bindings.json`;
   let map = {};
   try { map = JSON.parse(readFileSync(mapPath, "utf8")); } catch { /* first bind */ }
-  map[CLAUDE_SID] = sessionFile;
+  const listOf = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+  for (const [sid, files] of Object.entries(map)) {
+    if (sid !== CLAUDE_SID && listOf(files).includes(sessionFile)) throw new Error(`already bound to ${sid}`);
+  }
+  const mine = listOf(map[CLAUDE_SID]);
+  if (!mine.includes(sessionFile)) mine.push(sessionFile);
+  map[CLAUDE_SID] = mine;
   const tmp = `${mapPath}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(map, null, 2)}\n`);
   renameSync(tmp, mapPath);

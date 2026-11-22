@@ -97,7 +97,8 @@ async function consume($: any, file: string, from: number, to: number): Promise<
 async function boundPath($: any): Promise<string> {
   try {
     const map = JSON.parse(await $.fs.read(`${$.plugin.root}/pi-bindings.json`))
-    const p = map?.[await $.session.id()]
+    const v = map?.[await $.session.id()]
+    const p = Array.isArray(v) ? v[v.length - 1] : v
     return typeof p === 'string' && p ? p : ''
   } catch {
     return ''

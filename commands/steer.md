@@ -9,7 +9,7 @@ disable-model-invocation: true
 ## 1. 找运行中的 Pi
 
 ```bash
-FILE=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null)
+FILE=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty | if type=="array" then .[] else . end' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null | tail -1)
 [ -n "$FILE" ] && [ -f "$FILE" ] || { echo NOT_BOUND; exit 0; }
 WS=$(head -1 "$FILE" | jq -r '.cwd // empty')
 [ -S "$WS/.pi-rpc.sock" ] && echo "RUNNING=$WS" || echo "NOT_RUNNING=$WS"
