@@ -72,7 +72,7 @@ Pi 有自己的全部工具和 MCP；"工作区只读"只写在任务书里。`p
 
 只报告模式：把第 5 条换成「本次只报告，不修复、不提交；不要按修复轮组织输出」。
 
-**任务书存档**：单审放 `review/.pi-review-task-<轮次>.txt`；并行审放 `review/reviewN/.pi-review-task-<轮次>.txt`。每轮新建一份，**绝不覆盖旧文件**；派单前把它复制成该运行目录的 `.pi-review-task.txt`（dispatch 读这个固定名），旧编号文件保留存档。
+**任务书存档**：命名 `.pi-review-task-<审核者>-<轮次>.txt`——单审 `review/.pi-review-task-main-1.txt`；并行审 `review/review1/.pi-review-task-review1-1.txt`、`review/review2/.pi-review-task-review2-1.txt`、`review/review3/.pi-review-task-review3-1.txt`。每轮新建一份，**绝不覆盖旧文件**；派单前把它复制成该运行目录的 `.pi-review-task.txt`（dispatch 读这个固定名），旧编号文件保留存档。
 
 ## 3. 派单 + 绑定
 
@@ -129,7 +129,7 @@ while [ ! -f .pi-done ] && kill -0 "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; do 
 - **只报告模式**：复核完逐条给用户：是否属实、证据（文件:行）、修复建议；然后停。用户说「改」→ 按下面的自动步骤修复、提交、复审。
 - **自动模式通用步骤**：
   1. 只有用户同意建仓库/分支才提交到本地 `pi/team`；没同意就不提交。提交信息 `fix: review round <n>`，排除 `.pi-*`，不 push；HEAD 没变不许重跑第 3、4 节。
-  2. 问题清单和修复说明写入下一份 `.pi-review-task-<n+1>.txt`，再复制成 `.pi-review-task.txt`；**不要覆盖旧文件**，旧编号保留存档。
+  2. 问题清单和修复说明写入下一份 `.pi-review-task-<审核者>-<n+1>.txt`，再复制成 `.pi-review-task.txt`；**不要覆盖旧文件**，旧编号保留存档。
   3. **立刻**执行第 3 节末尾的 bash：当前目录有同目录绑定用 `bind`，否则用 `new`；不要再走第 3 节的提问。复核、再修；只有用户同意建分支才再提交。
   4. 中途不要问用户，不要每轮汇报；只在通过、达到轮数上限、或必须用户拍板时停。
   5. 结束时一次性汇报：共几轮、每轮修了什么、最终结论、剩余问题。
