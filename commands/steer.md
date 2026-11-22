@@ -9,10 +9,15 @@ disable-model-invocation: true
 ## 1. 找运行中的 Pi
 
 ```bash
-FILE=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty | if type=="array" then .[] else . end' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null | tail -1)
-[ -n "$FILE" ] && [ -f "$FILE" ] || { echo NOT_BOUND; exit 0; }
-WS=$(head -1 "$FILE" | jq -r '.cwd // empty')
-[ -S "$WS/.pi-rpc.sock" ] && echo "RUNNING=$WS" || echo "NOT_RUNNING=$WS"
+LIST=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty | if type=="array" then .[] else . end' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null)
+[ -n "$LIST" ] || { echo NOT_BOUND; exit 0; }
+WS=""
+while IFS= read -r FILE; do
+  [ -f "$FILE" ] || continue
+  CWD=$(head -1 "$FILE" | jq -r '.cwd // empty')
+  [ -S "$CWD/.pi-rpc.sock" ] && WS="$CWD"
+done <<< "$LIST"
+[ -n "$WS" ] && echo "RUNNING=$WS" || echo "NOT_RUNNING"
 ```
 
 - `NOT_BOUND` → 回「这个对话没有绑定 Pi 会话」，结束。

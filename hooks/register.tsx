@@ -33,7 +33,7 @@ type Kind = 'task' | 'tool' | 'text'
 type Entry = { key: string; kind: Kind; text: string }
 
 const lines = atom({ plugin: 'pi', key: 'lines' } as const, [] as string[], { shape: 'lines-2' })
-const binds = atom({ plugin: 'pi', key: 'binds' } as const, { files: [] as string[], idx: -1 }, { shape: 'binds-1' })
+const binds = atom({ plugin: 'pi', key: 'binds' } as const, { files: [] as string[], idx: -1, offset: 0 }, { shape: 'binds-1' })
 
 let shownPath = ''
 let selected = -1
@@ -132,13 +132,13 @@ async function poll($: any) {
         await clear($)
       }
       const cur = await read($, binds)
-      if (cur.files.length) await update($, binds, () => ({ files: [], idx: -1 }))
+      if (cur.files.length) await update($, binds, (s) => ({ ...s, files: [], idx: -1 }))
       return
     }
     const idx = selected >= 0 && selected < files.length ? selected : files.length - 1
     file = files[idx]
     const cur = await read($, binds)
-    if (cur.idx !== idx || cur.files.length !== files.length) await update($, binds, () => ({ files, idx }))
+    if (cur.idx !== idx || cur.files.length !== files.length) await update($, binds, (s) => ({ ...s, files, idx }))
     if (file !== shownPath) {
       shownPath = file
       await clear($)
@@ -213,12 +213,15 @@ export const register: Register = on => {
   on('ui.scroll', { requestId: PANE }, ($, e, next) => {
     if (e.origin.kind === 'person') {
       savedOffset = e.offset
+      void update($, binds, (s) => ({ ...s, offset: e.offset }))
       return next(e)
     }
     if (restoring) {
       restoring = false
+      void update($, binds, (s) => ({ ...s, offset: savedOffset }))
       return next({ ...e, offset: savedOffset })
     }
+    void update($, binds, (s) => ({ ...s, offset: e.offset }))
     return next(e)
   })
 
@@ -271,16 +274,17 @@ async function drawPane($: any, e: any) {
       }
     }),
   )
+  const off = bs.offset ?? 0
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row" gap={1}>
+      <Box position="absolute" top={off} left={0} right={0} backgroundColor="#1e1e2e" flexDirection="row" gap={1}>
         <Text dimColor>Pi</Text>
         {bs.files.length > 1 && bs.files.map((_, i) => (
           <Button
             key={`b${i}`}
             label={`${i + 1}`}
             variant={i === bs.idx ? 'primary' : undefined}
-            onPress={() => { selected = i; void update($, binds, () => ({ files: bs.files, idx: i })) }}
+            onPress={() => { selected = i; void update($, binds, (s) => ({ ...s, files: bs.files, idx: i })) }}
           >
             <Text color={i === bs.idx ? '#cba6f7' : '#82869e'} bold={i === bs.idx}>
               {`[${i + 1}]`}
@@ -288,28 +292,31 @@ async function drawPane($: any, e: any) {
           </Button>
         ))}
       </Box>
-      <Text dimColor>{shownPath.split('/').pop()}</Text>
-      {list.length === 0 ? (
-        <Text dimColor>等待 Pi 输出…</Text>
-      ) : (
-        list.map((item, i) =>
-          item.kind === 'task' ? (
-            <Box key={item.key} borderStyle="round" borderColor="cyan" paddingX={1}>
-              <Text color="cyan">{item.text}</Text>
-            </Box>
-          ) : item.kind === 'tool' ? (
-            <Text key={item.key} dimColor>
-              {item.text}
-            </Text>
-          ) : drawn[i] !== null ? (
-            <Box key={item.key} flexDirection="column">
-              {drawn[i]}
-            </Box>
-          ) : (
-            <Markdown key={item.key} text={item.text} />
-          ),
-        )
-      )}
+      <Box flexDirection="column">
+        <Text> </Text>
+        <Text dimColor>{shownPath.split('/').pop()}</Text>
+        {list.length === 0 ? (
+          <Text dimColor>等待 Pi 输出…</Text>
+        ) : (
+          list.map((item, i) =>
+            item.kind === 'task' ? (
+              <Box key={item.key} borderStyle="round" borderColor="#b4befe" paddingX={1}>
+                <Text color="#cba6f7">{item.text}</Text>
+              </Box>
+            ) : item.kind === 'tool' ? (
+              <Text key={item.key} dimColor>
+                {item.text}
+              </Text>
+            ) : drawn[i] !== null ? (
+              <Box key={item.key} flexDirection="column">
+                {drawn[i]}
+              </Box>
+            ) : (
+              <Markdown key={item.key} text={item.text} />
+            ),
+          )
+        )}
+      </Box>
     </Box>
   )
 }
