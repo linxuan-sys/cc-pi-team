@@ -1,4 +1,13 @@
+# 绑定表（运行时）
 pi-bindings.json
+pi-bindings.json.tmp
+
+# 运行时文件：任务书、事件、pid、session id、审查起点、锁
 .pi-*
-pi-review-report.md
+
+# 日志和审查报告
 *.log
+pi-review-report.md
+
+# 引擎自动生成的类型
+.claude-plugin/types/
