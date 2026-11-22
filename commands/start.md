@@ -1,17 +1,28 @@
 ---
-description: Pi team mode: plan, delegate coding to Pi, review and commit
+description: Pi mode: team or collaboration; plan, delegate, review
 argument-hint: [需求描述]
 disable-model-invocation: true
 ---
 
-# Pi 团队模式
-
-- Claude：定计划、派单、审核、验收；只做拼写、格式、少量修补。
-- Pi：写核心代码；子代理自己派，Claude 不指挥。
-- 审核必须自己看 diff 和代码，不能转述 Pi 的结论。
-- 一个对话只用一个 Pi 会话；同一工作区不并跑。
+# Pi 模式（团队 / 协同）
 
 **所有提问都用 `AskUserQuestion`**，不要用文字问；拿到答案就在同一轮继续。
+
+## 模式（先问）
+
+用 `AskUserQuestion` 问「开启哪个模式？」：协同模式 / 团队模式。
+
+- **团队模式**：Claude 定计划、派单、审核；Pi 写全部核心代码，Claude 只做小修补。
+- **协同模式**：两边平级；Claude 定文件分工，两边同时写；Pi 写完汇报；文件冲突由 Claude 提出。
+
+模式只记在本次对话里。两个模式共用一个 `.pi-start-task.txt`，只能开一个。
+
+## 分工（两种模式共用）
+
+- Pi 的子代理自己派，Claude 不指挥。
+- Pi 写代码的时候 Claude 可以派只读子代理做代码审核和文件架构分析。
+- 审核必须自己看 diff 和代码，不能转述 Pi 的结论。
+- 一个对话只用一个 Pi 会话；同一工作区不并跑。
 
 ## 0. 工作区
 
@@ -30,7 +41,9 @@ disable-model-invocation: true
 - 每步改哪些文件/接口；拿不准的点标出来。
 - 风险与验证方式（具体命令或测试）。
 
-用户批准后，**立刻**把计划写进工作区的 `.pi-start-task.txt`（放在这里方便你手动改计划）：
+**协同模式额外要求**：计划里必须有「文件分工」——哪些文件归 Pi、哪些文件归 Claude，两边不重叠；拿不准的文件先列出来问用户。
+
+用户批准后，**立刻**把计划写进工作区的 `.pi-start-task.txt`：
 
 ```
 【角色】我是 Claude，你是本项目的秘书，核心编码全部由你完成，我负责计划与审核。
@@ -42,6 +55,25 @@ disable-model-invocation: true
 5. 不能暂存、不能推送：禁止 `git add`、`git push`。
 【计划】
 （用户批准的完整计划，原样贴进来）
+【需求原文】
+（用户原始需求）
+```
+
+协同模式的任务书用这一份（文件名不变，还是 `.pi-start-task.txt`）：
+
+```
+【角色】我们是协作模式：你和我平级，都写代码。我定文件分工，你只改你那份。
+【要求】
+1. 只改「归你」的文件；「归我」的文件不要动。
+2. 写完立刻汇报：改了哪些文件、关键 diff、怎么验证。
+3. 要动我的文件、或发现冲突，先停下告诉我，不要自己改。
+4. 不能暂存、不能推送：禁止 `git add`、`git push`。
+【文件分工】
+归你（Pi）：...
+归我（Claude）：...
+两边不重叠。
+【计划】
+（用户批准的完整计划）
 【需求原文】
 （用户原始需求）
 ```
@@ -93,22 +125,28 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "<工作区>" "<new|bind>" "
 while [ "$(cat /proc/$(cat .pi-pid)/comm 2>/dev/null)" = "pi" ]; do sleep 2; done; echo PI_DONE
 ```
 
+协同模式：派单后你先写自己负责的文件；Pi 在后台跑，收到 `PI_DONE` 再复核 Pi 的文件和冲突。
+
 ## 5. 审核
 
 1. 读工作区的 `.pi-events.jsonl`：`message_end` 里 assistant 的 text = 汇报；`tool_execution_end.result.structuredContent` = 命令输出与退出码。如果最后一条 assistant 的 `stopReason` 是 `error`，把 `errorMessage` 原样贴给用户并停，不要继续审核。
 2. 走了 git：跑 `git status --short -- . ':(exclude).pi-*'`、`git diff --stat`、`git diff`；有 `wip: before pi task` 就对照它，没有就只看 Pi 汇报的文件。没走 git：按 Pi 的汇报逐个读改动文件，跑项目测试。
 3. Read 关键文件确认逻辑真的实现（不是注释、占位、假数据）。
 4. 查：功能是否实现、是否删了原逻辑或吞异常、是否有计划外改动、声称的测试是否真跑过。
+5. 协同模式额外查：Pi 是否只改了自己那份、有没有越界、接口/文件有没有冲突；有冲突你先提出来。
 
 ## 6. 返工 / 收尾
 
-- 核心问题 → 返工单**追加**到 `.pi-start-task.txt`，直接执行第 3 节末尾的 bash（参数固定 `bind`），再等第 4 节；不要再走第 3 节的提问。最多两轮。
-- 小问题（拼写、格式、一行修补）→ 自己改，报告注明「这部分由我修补」。
+- 核心问题 → 返工单**追加**到 `.pi-start-task.txt`，直接执行第 3 节末尾的 bash（参数固定 `bind`），再等第 4 节；不要再走第 3 节的提问。
+- 协同模式：返工单只写 Pi 负责的文件；你自己的文件直接改。
+- 每轮进行完修改后，若上面用户同意创建分支或建立Git仓库，则推送（必须）。用户不同意则不推送。
+- 小问题（拼写、格式、非核心架构问题）→ 自己改，报告注明「这部分由我修补」。
 - 通过后：用户同意建仓库/分支才提交到 `pi/team`（排除 `.pi-*`，提交信息 `fix: <简述>`，不要 `git add -A`）；没同意就跳过提交，直接汇报。
 
 ## 7. 汇报
 
 - 结论：成功 / 部分完成 / 失败
+- 模式：团队 / 协同；协同模式附文件分工和各自改动
 - Pi 做了什么（按步骤，每步一句）
 - 实际改动（文件 + 增删行数，以 diff 为准）
 - 审核意见（通过 / 问题清单 / 我修补了什么）
@@ -116,10 +154,10 @@ while [ "$(cat /proc/$(cat .pi-pid)/comm 2>/dev/null)" = "pi" ]; do sleep 2; don
 
 ## 禁止
 
-- 替 Pi 写核心代码
+- 团队模式：替 Pi 写核心代码；协同模式：改 Pi 负责的文件、让 Pi 改你负责的文件
 - 不看代码就转述 Pi 的结论
 - 没有 `BOUND=` 就往下走
 - 同时开两个 headless Pi 写同一会话
 - 计划未批准就开工（说「直接干」除外）
 - 指挥 Pi 的子代理
-- 用户选了分支后还在 main/master 上改动或提交；push 一律禁止
+- 用户选了分支后还在 main/master 上改动或提交；用户没同意建仓库/分支时 push
