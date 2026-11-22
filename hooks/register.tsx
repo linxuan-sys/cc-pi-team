@@ -2,6 +2,26 @@ import { atom, read, update } from 'claude-code'
 import type { Register, Timer } from 'claude-code'
 
 const PANE = 'pi-view'
+const MARK_ART = [
+  '████████████    ',
+  '████████████    ',
+  '████    ████    ',
+  '████    ████    ',
+  '████████    ████',
+  '████████    ████',
+  '████        ████',
+  '████        ████',
+].join('\n')
+const CODE_ART = [
+  ' '.repeat(35),
+  ' '.repeat(35),
+  ' '.repeat(35),
+  '  ' + ' █████    ████    █████    ██████'.padEnd(33),
+  '  ' + '██  ██   ██  ██   ██  ██   ██'.padEnd(33),
+  '  ' + '██       ██  ██   ██  ██   █████'.padEnd(33),
+  '  ' + '██  ██   ██  ██   ██  ██   ██'.padEnd(33),
+  '  ' + ' █████    ████    █████    ██████'.padEnd(33),
+].join('\n')
 const MAX_READ = 3 * 1024 * 1024 // 单次最多读 3 MiB（引擎上限 4 MiB）
 const MAX_KEEP = 500 // 面板只留最近 500 条
 const MAX_ENTRY = 200_000 // 单条正文上限，超出截断并加省略号
@@ -175,6 +195,11 @@ async function drawPane($: any, e: any) {
   if (!shownPath)
     return (
       <Box flexDirection="column">
+        <Box flexDirection="row">
+          <Text color="#425f5b">{MARK_ART}</Text>
+          <Text color="#7ea898">{CODE_ART}</Text>
+        </Box>
+        <Text> </Text>
         <Text dimColor>Not bound to a Pi session</Text>
       </Box>
     )
