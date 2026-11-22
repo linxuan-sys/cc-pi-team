@@ -179,18 +179,12 @@ const PI_USAGE = `【Pi 插件使用说明】
 /pi-pane 打开侧边输出面板
 /pi-unbind 清空所有绑定
 /pi:clear 清理当前工作区的 .pi-* 临时文件
-规则：一个工作区只能跑一个 Pi；一个 Pi 只归一个 Claude 对话；并行审各方向用 review/reviewN 运行目录。`
+规则：一个工作区只能跑一个 Pi；一个 Pi 只归一个 Claude 对话；并行审各方向用 review/reviewN 运行目录。
+【启用规则】只有用户明确说“开启 Pi 模式”或直接输入 /pi:* 命令时才启用；用户只说“子智能体”、或没有明确要求时，不要启用、不要推断、不要自动派单。`
 
 export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const r = await next(e)
-    let bound = false
-    try {
-      const map = JSON.parse(await $.fs.read(`${$.plugin.root}/pi-bindings.json`))
-      const v = map?.[await $.session.id()]
-      bound = (Array.isArray(v) ? v.length : v ? 1 : 0) > 0
-    } catch { /* no bindings yet */ }
-    if (!bound) return r
     return { sections: [...r.sections, { id: 'pi:usage', text: PI_USAGE, scope: 'session' as const }] }
   })
 
