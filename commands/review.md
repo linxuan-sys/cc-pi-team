@@ -10,12 +10,22 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 
 审查目标：$ARGUMENTS（空 = 当前未提交改动；非 git 仓库 = 整个目录）
 
+## 模式（开工前先问）
+
+用 `AskUserQuestion` 问「这次审查用哪种模式？」：
+
+1. **自动模式** —— 每轮 Pi 审完，我复核、修复、提交本地 `pi/team`，再送审，直到通过或到轮数上限。
+2. **计划模式** —— Pi 每报一条，我只确认是否真实存在并给修复建议；不改代码、不提交。用户说「改」之后才动手。
+
+选了自动模式，再问「自动模式强度？」：**强** 10 轮 / **中** 5 轮 / **弱** 3 轮。
+模式与轮数记在本次对话里，不写文件。
+
 ## 0. 准备仓库与分支
 
 `/pi:review` 可以单独跑，不依赖 `/pi:start`，所以 git 这一步全部在这里做完：
 
 1. **不是 git 仓库** → `git init -b pi/team`（默认分支就叫 `pi/team`）→ `git add -A`（排除 `.pi-*`）→ `git commit -m "baseline: before pi review"`。
-2. **已经是 git 仓库** → 有 `pi/team` 就 `git switch pi/team`；没有就 `git switch -c pi/team` 新建。
+2. **已经是 git 仓库** → 有 `pi/team` 就 `git switch pi/team`；没有就 `git switch -c pi/team` 新建。切过去后确认仓库有提交：`git rev-parse --verify -q HEAD` 失败 → 报 `NO_HEAD`，停。
 3. **记审查起点** → `git rev-parse HEAD > .pi-review-base`。
 4. **有未提交改动** → `git add -A`（排除 `.pi-*`）+ `git commit -m "wip: before pi review"`。必须先记起点再提交，审查范围 `git diff .pi-review-base` 才会包含这些改动。
 5. 只提交本地，不 push 远程；分支只用 `pi/team`。
@@ -46,7 +56,7 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 3. 每条问题必须落到具体 文件:行；不确定的标注"待确认"，不要编。
 4. 不要改代码，也不要给整段重写，只给问题与修复建议。
 5. 每轮修复后我都会提交到本地分支 `pi/team`（不 push）。复审时先用 `git status`、`git log --oneline -3` 和 `git show HEAD` 对比仓库，看这一轮到底改了什么；分支是 `pi/team`。任何情况下你都不能创建分支、不能提交、不能暂存、不能推送（禁止 git add / git commit / git push）。
-6. 只找 bug、逻辑冲突、死代码、漏洞；用户没提到的新功能不要提，不要建议加东西。
+6. 主要找 bug、逻辑冲突、死代码、漏洞；用户没提到的新功能不要改，只能建议。
 【输出】
 按严重程度排序（阻断 / 重要 / 次要 / 建议），每条：
 - 文件:行 — 问题 — 为什么是问题 — 修复建议
@@ -57,7 +67,7 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 
 先读本对话的绑定：`jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`。
 
-- **有绑定且文件存在** → 从文件第一行取 `id`（没有就从文件名里取）写进 `.pi-session-id`；杀掉本工作区其他还活着的 `pi`（按 `pgrep -f "^pi .*--session-id"` 找，用 cwd 过滤，只动 pi）；再看这个 id 是否在跑，输出 `BOUND_RUNNING:<id>` 或 `BOUND_IDLE:<id>`。
+- **有绑定且文件存在** → 从文件第一行取 `id`（没有就从文件名里取）写进 `.pi-session-id`；杀掉本工作区其他还活着的 **headless** `pi`（`pi -p ...`；按 `pgrep -f "^pi .*--session-id"` 找，用 `/proc/<pid>/cwd` 过滤，交互式 `pi --session` 不动）；再看这个 id 是否在跑，输出 `BOUND_RUNNING:<id>` 或 `BOUND_IDLE:<id>`。
 - **没有绑定** → 看本工作区有没有在跑的 `pi`，有就输出 `RUNNING=<id>`，没有输出 `RUNNING=`。
 
 - **`BOUND_IDLE:<id>`** → 直接进第 4 节，用这条会话启动审查。
@@ -75,11 +85,13 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 
 `setsid nohup pi -p --approve --mode json --session-id "$(cat .pi-session-id)" "$(cat .pi-review-task.txt)" > .pi-events.jsonl 2>&1 < /dev/null &`
 
-然后在 `~/.pi/agent/sessions/*/*_<ID>.jsonl` 里等一个首行 `cwd` 等于当前工作区的文件，最多 60 秒。等到就输出 `FILE=<路径>`；等不到就杀掉这个 id 的 pi，报 `NO_SESSION`，停。
+然后在 `~/.pi/agent/sessions/*/*_<ID>.jsonl` 里等一个首行 `cwd` 等于当前工作区的文件，最多 60 秒。等到就输出 `FILE=<路径>`；等不到就杀掉这个 id 的 pi，报 `NO_SESSION`，停。同时确认这个 id 的 pi 真在跑（`pgrep -f` 命中）；没起来就贴 `.pi-events.jsonl` 尾部，停。
 
 ### 4.2 写绑定
 
 `FILE` 来自 4.1，或第 3 节直接绑定时找到的会话文件。
+
+绑定表不存在时先建空表：`[ -f "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" ] || printf '{}' > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`。
 
 用 jq 写绑定（一行）：
 
@@ -104,14 +116,18 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 1. `message_end` 里 `role == "assistant"` 的 text 块 = 报告；`tool_execution_end.result.structuredContent` = 命令输出与退出码。
 2. 逐条打开 `文件:行` 复核：属实保留，报错标「已复核：误报」。
 3. 「Pi 报的」和「我复核过的」分开写。
+4. **计划模式**：复核完直接汇报（属实/误报 + 修复建议），停，等用户说「改」；按第 7 节的计划模式走。
 
-## 7. 修复 → 复审（自动循环，不要停）
+## 7. 复核之后（按模式）
+
+- **计划模式**：逐条给用户：是否属实、证据（文件:行）、修复建议；然后停。用户没说「改」之前不动代码、不提交。
+- **自动模式**：按下面循环，最多审到开工前选的轮数（强 10 / 中 5 / 弱 3）；到上限仍未通过就停，如实汇报。
 
 1. 修完提交到本地分支 `pi/team`（不 push 远程）：用 `git add -u -- . ':(exclude).pi-*'` 加 `git add -- <本轮新增文件>` 提交。
 
 2. 问题清单和修复说明**追加**到 `.pi-review-task.txt`，要求逐条确认并重扫。
 3. **立刻**重跑第 3、4、5 节（同一会话 ID），复核、再修、再提交。
-4. **中途不要问用户，不要每轮汇报**；只在通过、5 轮上限、或必须用户拍板时停。
+4. **中途不要问用户，不要每轮汇报**；只在通过、达到所选轮数上限、或必须用户拍板时停。
 5. 结束时一次性汇报：共几轮、每轮修了什么、最终结论、剩余问题。
 6. 修复只针对报告里的问题；用户没提到的新功能不要加。
 

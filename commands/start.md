@@ -22,7 +22,7 @@ disable-model-invocation: true
 2. 当前目录是 git 仓库（`git rev-parse --is-inside-work-tree` 成功）→ 直接用当前目录。
 3. 判断不出 → 问「在哪个目录做？」。
 
-禁止把 `$HOME` 当工作区。
+禁止把 `$HOME` 当工作区。确定后 `cd <工作区>`，后续所有命令都在该目录执行（`.pi-*` 运行时文件也生成在这里）。
 
 ## 1. 计划（走计划模式，不写代码）
 
@@ -73,11 +73,11 @@ disable-model-invocation: true
 
 先读本对话的绑定：`jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`。
 
-- **有绑定且文件存在** → 从文件第一行取 `id`（没有就从 `<时间戳>_<id>.jsonl` 文件名里取）写进 `.pi-session-id`；杀掉本工作区其他还活着的 `pi`（按 `pgrep -f "^pi .*--session-id"` 找，用 cwd 过滤，只动 pi）；再看这个 id 是否在跑，输出 `BOUND_RUNNING:<id>` 或 `BOUND_IDLE:<id>`。
+- **有绑定且文件存在** → 从文件第一行取 `id`（没有就从 `<时间戳>_<id>.jsonl` 文件名里取）写进 `.pi-session-id`；杀掉本工作区其他还活着的 **headless** `pi`（`pi -p ...`；按 `pgrep -f "^pi .*--session-id"` 找，用 `/proc/<pid>/cwd` 过滤，交互式 `pi --session` 不动）；再看这个 id 是否在跑，输出 `BOUND_RUNNING:<id>` 或 `BOUND_IDLE:<id>`。
 - **没有绑定** → 看本工作区有没有在跑的 `pi`，有就输出 `RUNNING=<id>`，没有输出 `RUNNING=`。
 
-- **`BOUND_IDLE:<id>`** → 绑定的 Pi 空闲。进第 5.1 节，用同一 ID 启动派单。
-- **`BOUND_RUNNING:<id>`** → 绑定的 Pi 还在跑。先跑第 6 节等它退出，再进第 5.1 节用同一 ID 启动。
+- **`BOUND_IDLE:<id>`** → 绑定的 Pi 空闲。进第 5.1 节，用同一 ID 启动派单；等到 `FILE` 后跑 5.2 重绑（绑定可能指向另一个工作区的旧文件）。
+- **`BOUND_RUNNING:<id>`** → 绑定的 Pi 还在跑。先跑第 6 节等它退出，再进第 5.1 节用同一 ID 启动；等到 `FILE` 后跑 5.2 重绑。
 - **`RUNNING` 非空** → 直接用它，不新开：在 `~/.pi/agent/sessions/*/*_<RUNNING>.jsonl` 里找首行 `cwd` 等于本工作区的文件（找不到报 `NO_SESSION`），把 ID 写进 `.pi-session-id`，然后执行第 5.2 节写绑定（用找到的文件）。它如果在跑别的任务，先等它结束，再按 5.1 用同一 ID 启动。
 - **`RUNNING` 为空** → 用 `AskUserQuestion` 问「这个工作区没有正在跑的 Pi，要新开一个吗？」：
   1. **是，新开一个 Pi** → `ID=$(cat /proc/sys/kernel/random/uuid)`，写 `.pi-session-id`，走第 5.1 节启动、5.2 绑定。
@@ -85,7 +85,7 @@ disable-model-invocation: true
 
 ## 5. 启动并绑定（新开、绑定空闲、或已有会话退出后都走这里）
 
-进入本节前必须已经拿到第 3.1 节的用户明确同意；没有同意就停。
+进入本节前必须已经拿到第 1 节（计划）的用户明确同意；没有同意就停。
 
 ### 5.1 启动
 
@@ -93,11 +93,15 @@ disable-model-invocation: true
 
 `setsid nohup pi -p --approve --mode json --session-id "$(cat .pi-session-id)" "$(cat .pi-start-task.txt)" > .pi-events.jsonl 2>&1 < /dev/null &`
 
-然后在 `~/.pi/agent/sessions/*/*_<ID>.jsonl` 里等一个首行 `cwd` 等于当前工作区的文件，最多 60 秒。等到就输出 `FILE=<路径>`；等不到就杀掉这个 id 的 pi，报 `NO_SESSION`，停。
+`--approve` 会加载项目本地扩展/设置；陌生仓库先告诉用户。
+
+然后在 `~/.pi/agent/sessions/*/*_<ID>.jsonl` 里等一个首行 `cwd` 等于当前工作区的文件，最多 60 秒。等到就输出 `FILE=<路径>`；等不到就杀掉这个 id 的 pi，报 `NO_SESSION`，停。同时确认这个 id 的 pi 真在跑（`pgrep -f` 命中）；没起来就贴 `.pi-events.jsonl` 尾部，停。
 
 ### 5.2 写绑定
 
 `FILE` 来自 5.1，或第 4 节直接绑定时找到的会话文件。
+
+绑定表不存在时先建空表：`[ -f "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" ] || printf '{}' > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`。
 
 用 jq 写绑定（一行）：
 
@@ -131,7 +135,7 @@ disable-model-invocation: true
 
 ## 8. 返工 / 收尾
 
-- 核心问题（逻辑错、方案不对、质量差）→ 返工单**追加**到 `.pi-start-task.txt`，重跑第 5、6 节（同一会话 ID）。最多两轮，仍不合格就停下如实报告。
+- 核心问题（逻辑错、方案不对、质量差）→ 返工单**追加**到 `.pi-start-task.txt`，重跑第 5、6 节（同一会话 ID；返工沿用已批准的计划，不再重复征求第 1 节同意）。最多两轮，仍不合格就停下如实报告。
 - 小问题（拼写、格式、一行修补）→ 直接改，报告注明「这部分由我修补」。
 - 审核通过 → 在 `pi/team` 上提交（只本地，不 push，不碰 main）：
 
@@ -155,7 +159,7 @@ disable-model-invocation: true
 
 - 禁止替 Pi 写核心代码
 - 禁止不看代码就转述 Pi 的结论
-- 禁止把启动和绑定拆成两条命令
+- 禁止启动后不写绑定就派单（启动和绑定要连着做完）
 - 禁止同时开多个 headless Pi 写同一会话
 - 禁止计划未批准就开工（说「直接干」除外）
 - 禁止指挥 Pi 的子代理

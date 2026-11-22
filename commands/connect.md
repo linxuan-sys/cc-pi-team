@@ -27,7 +27,25 @@ for f in ~/.pi/agent/sessions/*/*.jsonl; do head -1 "$f" | jq -r --arg f "$f" '[
 
 ## 3. 写绑定
 
-用户回编号后，取对应的会话文件路径：
+用户回编号后，取对应的会话文件路径。绑定表不存在时先建空表：
+
+```bash
+[ -f "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" ] || printf '{}' > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"
+```
+
+**先查占用**：
+
+```bash
+jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "<选中的会话文件>" 'to_entries[] | select(.key != $sid) | select(.value == $p) | .key' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null
+```
+
+- 有别的 key → 这条会话已被另一个对话占用，先问「这条会话已被另一个对话占用，要解绑那边、连到这边吗？」
+  - 同意 → 重绑（del 旧键）：
+    ```bash
+    jq --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "<选中的会话文件>" --arg o "<另一个会话 ID>" 'del(.[$o]) | .[$sid] = $p' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"
+    ```
+  - 不同意 → 停，什么都不改。
+- 没有别的 key → 普通写绑定：
 
 ```bash
 jq --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "<选中的会话文件>" '.[$sid] = $p' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"
@@ -41,9 +59,3 @@ jq --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "<选中的会话文件>" '.[$sid
   3. /pi:review —— 用它审查代码
   ```
 - jq 报错 → 贴给用户，停。
-- 如果这条会话已被另一个对话占用，先问「这条会话已被另一个对话占用，要解绑那边、连到这边吗？」
-  - 同意 → 重绑：
-    ```bash
-    jq --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "<选中的会话文件>" --arg o "<另一个会话 ID>" 'del(.[$o]) | .[$sid] = $p' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"
-    ```
-  - 不同意 → 停，什么都不改。

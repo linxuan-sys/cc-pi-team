@@ -4,10 +4,13 @@ import type { Register } from 'claude-code'
 const PANE = 'pi-view'
 const MAX_READ = 3 * 1024 * 1024 // 每次最多读 3 MiB，避开引擎 4 MiB 上限
 const MAX_KEEP = 5000
+const MAX_BYTES = 1024 * 1024 // encoded 总量：JSON 转义后仍远低于引擎 4 MiB 写入上限
 const SEP = '\u0001'
 const TOOL = '⚙ '
 // 工具命令里不显示控制字符/ANSI 转义
 const CTRL = /\u001b\[[0-9;]*[A-Za-z]|[\u0000-\u001f\u007f-\u009f]/g
+// 正文只允许 tab 和换行，其余控制字符丢掉（Text/Markdown 的输入约定）
+const TEXT_CTRL = /\u001b\[[0-9;]*[A-Za-z]|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g
 
 type Kind = 'task' | 'tool' | 'text'
 type Entry = { key: string; kind: Kind; text: string }
@@ -33,6 +36,10 @@ let skinsOff = false
 let stopTick: (() => void) | null = null
 let entries: Entry[] = []
 const seen = new Set<string>()
+let generation = 0
+let lastBindError = ''
+let drawnCache = new Map<string, any>()
+let drawnCacheKey = ''
 
 // UTF-8 字节数（代理对算 4 字节），不依赖 TextEncoder
 function byteLen(text: string): number {
@@ -79,7 +86,7 @@ function parseEntries(raw: string, base: number): Entry[] {
         return
       }
       if (b?.type !== 'text' || typeof b.text !== 'string') return
-      const text = b.text.trim()
+      const text = b.text.replace(TEXT_CTRL, '').trim()
       if (!text) return
       if (m.role === 'assistant') out.push({ key, kind: 'text', text })
       else if (m.role === 'user') out.push({ key, kind: 'task', text })
@@ -147,8 +154,18 @@ async function boundPath($: any): Promise<string> {
     const rootStat = await $.fs.stat(`${home}/.pi/agent/sessions`, { resolve: true }).catch(() => undefined)
     const root = String((rootStat as any)?.realPath ?? '')
     if (!root || !real.startsWith(root.replace(/\/+$/, '') + '/')) return ''
+    lastBindError = ''
     return p.trim()
-  } catch {
+  } catch (error: unknown) {
+    const why = error instanceof Error ? error.message : String(error)
+    if (why !== lastBindError) {
+      lastBindError = why
+      try {
+        $.ui.log(`pi-pane: bind ${why}`, { to: 'debug' })
+      } catch {
+        // 日志失败不影响轮询
+      }
+    }
     return ''
   }
 }
@@ -160,13 +177,32 @@ function reset() {
   lastMtime = -1
   primed = false
   dirty = false
+  drawnCache.clear()
+}
+
+// 绑定被解掉/会话结束：让在飞的 poll 作废，别把旧内容写回来
+function invalidate() {
+  generation++
+  reset()
 }
 
 function trim() {
-  if (entries.length <= MAX_KEEP) return
-  entries = entries.slice(-MAX_KEEP)
+  let cut = Math.max(0, entries.length - MAX_KEEP)
+  let total = 0
+  for (let i = entries.length - 1; i >= cut; i--) {
+    const e = entries[i]
+    if (!e) break
+    total += byteLen(e.kind) + byteLen(e.key) + byteLen(e.text) + 2
+    if (total > MAX_BYTES) {
+      cut = Math.max(cut, i + 1)
+      break
+    }
+  }
+  if (cut === 0) return
+  entries = entries.slice(cut)
   seen.clear()
   for (const e of entries) seen.add(e.key)
+  for (const k of drawnCache.keys()) if (!seen.has(k)) drawnCache.delete(k)
 }
 
 function encoded(): string[] {
@@ -190,7 +226,11 @@ async function consume($: any, target: string, from: number, to: number): Promis
         const next = await skipOversizeLine($, target, at, to)
         if (next > at) {
           at = next
-          entries.push({ key: `skip:${at}`, kind: 'tool', text: `${TOOL}超大消息已跳过` })
+          const key = `skip:${at}`
+          if (!seen.has(key)) {
+            seen.add(key)
+            entries.push({ key, kind: 'tool', text: `${TOOL}超大消息已跳过` })
+          }
           continue
         }
       }
@@ -212,8 +252,13 @@ async function consume($: any, target: string, from: number, to: number): Promis
 async function poll($: any) {
   if (running) return
   running = true
+  const gen = generation
   try {
     const target = await boundPath($)
+    if (gen !== generation) {
+      reset()
+      return
+    }
     if (!target) {
       if (shownPath) {
         shownPath = ''
@@ -226,16 +271,33 @@ async function poll($: any) {
       shownPath = target
       reset()
       await update($, lines, () => [])
+      if (gen !== generation) {
+        reset()
+        return
+      }
     }
     const st = await $.fs.stat(target)
+    if (gen !== generation) {
+      reset()
+      return
+    }
     const mtime = (st as any).mtimeMs ?? 0
     if (st.size < lastSize || (st.size === lastSize && mtime !== lastMtime)) reset() // 截断或等长重写
 
     if (!primed) {
-      lastSize = await consume($, target, 0, st.size)
-      lastMtime = mtime
+      const at = await consume($, target, 0, st.size)
+      if (gen !== generation) {
+        reset()
+        return
+      }
       trim()
       await update($, lines, encoded)
+      if (gen !== generation) {
+        reset()
+        return
+      }
+      lastSize = at
+      lastMtime = mtime
       primed = true
       dirty = false
       return
@@ -244,6 +306,10 @@ async function poll($: any) {
     if (st.size === lastSize && mtime === lastMtime && !dirty) return
     const before = entries.length
     const at = await consume($, target, lastSize, st.size)
+    if (gen !== generation) {
+      reset()
+      return
+    }
     lastSize = at
     lastMtime = mtime
     if (entries.length !== before || dirty) {
@@ -252,7 +318,13 @@ async function poll($: any) {
       dirty = false
     }
   } catch (error: unknown) {
-    // entries 可能已前进而 atom 没写成；下一轮强制重写，避免面板永久落后
+    if (gen !== generation) {
+      reset()
+      return
+    }
+    // entries 可能已前进而 atom 没写成；下一轮强制重写，避免面板永久落后。
+    // prime 中途失败时丢掉半截 entries，下一轮从头读，免得顺序错乱。
+    if (!primed) reset()
     dirty = true
     try {
       const why = error instanceof Error ? error.message : String(error)
@@ -283,6 +355,7 @@ export const register: Register = on => {
       immediate: true,
     })
     skinsOff = false
+    invalidate()
     startTick($)
     return next(e)
   })
@@ -302,7 +375,7 @@ export const register: Register = on => {
       stopTick = null
     }
     shownPath = ''
-    reset()
+    invalidate()
     await update($, lines, () => [])
     return next(e)
   })
@@ -325,7 +398,7 @@ export const register: Register = on => {
     delete map[self]
     await $.fs.write(await bindingsFile($), JSON.stringify(map, null, 2))
     shownPath = ''
-    reset()
+    invalidate()
     await update($, lines, () => [])
     return { text: `已解绑: ${old}` }
   })
@@ -369,13 +442,23 @@ async function drawPane($: any, e: any) {
     }
   })
   // 表格只有 skin 的渲染器会画；拿不到就退回内置 Markdown
-  const columns = Math.max(20, Number(e.props?.bodyColumns ?? e.viewport?.columns ?? 80) - 2)
+  const rawCols = Number(e.props?.bodyColumns ?? e.viewport?.columns ?? 80)
+  const columns = Number.isFinite(rawCols) ? Math.max(20, Math.round(rawCols) - 2) : 78
   const surface = (e.surface ?? 'terminal') as 'terminal' | 'desktop' | 'vscode' | 'mobile'
+  const cacheKey = `${surface}\u0000${columns}`
+  if (cacheKey !== drawnCacheKey) {
+    drawnCache.clear()
+    drawnCacheKey = cacheKey
+  }
   const drawn = await Promise.all(
     list.map(async item => {
       if (item.kind !== 'text' || skinsOff) return null
+      const hit = drawnCache.get(item.key)
+      if (hit !== undefined) return hit
       try {
-        return (await ($ as any).skins.markdown({ surface, text: item.text, columns })) ?? null
+        const out = (await ($ as any).skins.markdown({ surface, text: item.text, columns })) ?? null
+        if (out !== null) drawnCache.set(item.key, out)
+        return out
       } catch {
         skinsOff = true // 没有 skins 桥：本次会话不再尝试
         return null
