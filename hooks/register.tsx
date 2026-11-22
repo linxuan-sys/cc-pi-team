@@ -277,7 +277,7 @@ async function drawPane($: any, e: any) {
   )
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row" gap={1}>
+      <Box flexDirection="row" flexWrap="wrap" gap={1}>
         <Text dimColor>Pi</Text>
         {bs.files.length > 1 && bs.files.map((_, i) => (
           <Button
