@@ -6,40 +6,38 @@ disable-model-invocation: true
 
 # 开启 Pi 模式
 
-当用户提到 Pi（“让 Pi 做…”“Pi 帮我…”）或输入 `/pi:start` 时，先读这份说明书，再按流程做。**不要自动派单，先确认模式。**
+当用户提到 Pi（“让 Pi 做…”“Pi 帮我…”）或输入 `/pi:start` 时，先读这份说明，再确认模式。**不要自动派单。**
 
-## 命令
+## 这是什么
 
-| 命令 | 作用 |
+Pi 是另一个独立的编码 agent（本机 `pi` CLI）。这个模式把“写代码”交给 Pi，Claude 负责计划、拆任务、审核和提交。
+
+- **不是子智能体**：Pi 有自己的进程和会话上下文，适合一整块、相对独立的编码任务。
+- **靠的是 Pi 的无头模式**：插件把任务书送进去，把 Pi 的输出和工具调用带回来，并把这个 Pi 会话绑定到当前对话。
+- 一个工作区同一时间只跑一个 Pi；一个 Pi 只归一个 Claude 对话；一个对话可以绑多个 Pi，用面板 `[1] [2]` 切换。
+
+## 常用命令
+
+| 命令 | 什么时候用 |
 |---|---|
-| `/pi:start` | 开启 Pi 模式并读这份说明书 |
-| `/pi:team` | 团队/协同模式：Claude 出计划、Pi 写代码、Claude 审核 |
-| `/pi:review` | 只读审查：Pi 报问题，Claude 修复并复审 |
-| `/pi:connect` | 连接一条已有 Pi 会话，只写绑定，不启动 Pi |
-| `/pi:steer <指令>` | 给正在跑的 Pi 插话纠偏，不重启 |
+| `/pi:start` | 开启 Pi 模式，读这份说明 |
+| `/pi:team` | 让 Pi 写代码：团队或协同模式 |
+| `/pi:review` | 让 Pi 只读审查代码，Claude 修复 |
+| `/pi:connect` | 把当前对话接到一条已有 Pi 会话 |
+| `/pi:steer <指令>` | Pi 跑偏了，插话纠偏，不重启 |
 | `/pi:abort` | 叫停正在跑的 Pi |
-| `/pi:stop` | 退出 Pi 模式：杀掉所有绑定的 Pi 进程，然后问是否解绑 |
-| `/pi:clear` | 清理当前工作区的 `.pi-*` 临时文件 |
+| `/pi:stop` | 退出 Pi 模式，杀掉所有绑定的 Pi 进程，问是否解绑 |
+| `/pi:clear` | 清理当前工作区的临时文件 |
 | `/pi-pane` | 打开右侧输出面板 |
 | `/pi-unbind` | 清空所有 Pi 绑定 |
 
-## 插件怎么运行
-
-- **面板**：`hooks/register.tsx` 注册 `/pi-pane`、`/pi-unbind`，每秒轮询选中的 Pi 会话文件并渲染；`[1] [2]` 按钮切换绑定。
-- **派单**：`scripts/pi-dispatch.sh <工作区> <new|bind> <start|review>` 启动 broker，成功输出 `BOUND=会话文件`。
-- **broker**：`scripts/pi-rpc.mjs` 拉起 `pi --mode rpc`，把事件写进 `.pi-events.jsonl`；`get_state` 拿到会话文件写绑定；`.pi-rpc.sock` 接收 steer/abort；`agent_settled` 后写 `.pi-done` 并退出。
-- **控制**：`scripts/pi-ctl.sh <工作区> steer|abort` 通过 socket 给 broker 发指令。
-- **绑定表**：`pi-bindings.json` 把「Claude 会话」映射到「Pi 会话文件数组」；一个 Claude 可绑多个 Pi，一个 Pi 只归一个 Claude。
-- **运行时文件**：`.pi-events.jsonl`、`.pi-pid`、`.pi-bound`、`.pi-done`、`.pi-rpc.sock`、`.pi-broker.log`；`/pi:clear` 清理。
-- **会话历史**：`~/.pi/agent/sessions/...`，插件只读，不改写。
-
-## 流程
+## 标准流程
 
 1. 确认工作区（当前目录或用户指定）。
-2. 问模式：团队/协同 → 读 `commands/team.md`；审查 → 读 `commands/review.md`。
+2. 问模式：团队/协同读 `commands/team.md`；审查读 `commands/review.md`。
 3. 写计划/任务书，用户批准后再派单。
-4. 派单后等 `.pi-done`，读 `.pi-events.jsonl` 审核；返工用同目录 `bind`。
-5. 收尾汇报；需要停止时 `/pi:stop`。
+4. 派单后等 Pi 完成，读它的输出审核；不满意就用返工单继续。
+5. 通过后汇报；要停就 `/pi:stop`。
 
 ## 硬规则
 
