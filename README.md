@@ -6,7 +6,7 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 
 ## What it does
 
-- `/pi:start` — Pi mode: team or collaboration; Claude plans, Pi implements, Claude reviews and commits
+- `/pi:team` — Pi mode: team or collaboration; Claude plans, Pi implements, Claude reviews and commits
 - `/pi:review` — Pi reviews code read-only, Claude fixes, re-review until it passes
 - `/pi:steer` — send a course correction to the running Pi (no restart)
 - `/pi:abort` — abort the running Pi
@@ -81,7 +81,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 |---|---|
 | `.claude-plugin/plugin.json` | Plugin manifest |
 | `.claude-plugin/marketplace.json` | Lets the folder act as its own marketplace |
-| `commands/start.md` | `/pi:start` prompt |
+| `commands/team.md` | `/pi:team` prompt |
 | `commands/review.md` | `/pi:review` prompt |
 | `commands/steer.md` | `/pi:steer` prompt: send a live course correction |
 | `commands/abort.md` | `/pi:abort` prompt |
@@ -106,7 +106,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 - The pane keeps entries in memory; the only file written in the plugin folder is the bindings file.
   Each dispatch also writes its `.pi-*` runtime files in the target workspace, for you to inspect and edit.
 - A single message over 3 MiB (a base64 screenshot, say) is skipped and the rest keeps flowing. A text block over 200k characters is truncated with an ellipsis.
-- `/pi-unbind` clears every binding and takes no file lock: don't run it concurrently with `/pi:start` or `/pi:stop`.
+- `/pi-unbind` clears every binding and takes no file lock: don't run it concurrently with `/pi:team` or `/pi:stop`.
 - One process with several conversations: the pane follows the current conversation's binding.
 - Tables are drawn by the skins plugin; without it the pane falls back to plain markdown.
 
@@ -118,7 +118,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 
 ## 命令
 
-- `/pi:start` —— Pi 模式：团队或协同；Claude 出计划，Pi 实现，Claude 审核并提交
+- `/pi:team` —— Pi 模式：团队或协同；Claude 出计划，Pi 实现，Claude 审核并提交
 - `/pi:review` —— Pi 只读审查代码，Claude 按结论修复，再审直到通过
 - `/pi:steer` —— 给正在跑的 Pi 发一句纠偏指令，不用重启
 - `/pi:abort` —— 叫停正在跑的 Pi
@@ -186,7 +186,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc（常驻）
 |---|---|
 | `.claude-plugin/plugin.json` | 插件清单 |
 | `.claude-plugin/marketplace.json` | 让这个目录本身能当市场被安装 |
-| `commands/start.md` | `/pi:start` 的提示词 |
+| `commands/team.md` | `/pi:team` 的提示词 |
 | `commands/review.md` | `/pi:review` 的提示词 |
 | `commands/steer.md` | `/pi:steer` 的提示词：给运行中的 Pi 发纠偏指令 |
 | `commands/abort.md` | `/pi:abort` 的提示词 |
@@ -212,4 +212,4 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc（常驻）
 - 单条消息超过 3 MiB（比如 base64 截图）会被跳过，后续内容照常。正文超过 20 万字符会截断并加省略号。
 - 一个进程多个对话时，面板跟随当前对话的绑定。
 - 表格由 skins 插件渲染；没有 skins 时退回普通 markdown。
-- `/pi-unbind` 会清空整张绑定表，且不带文件锁；不要和 `/pi:start`、`/pi:stop` 并发执行。
+- `/pi-unbind` 会清空整张绑定表，且不带文件锁；不要和 `/pi:team`、`/pi:stop` 并发执行。
