@@ -124,7 +124,7 @@ jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "${CLAUDE_PLUGIN_ROOT}/pi-
 
 陌生仓库先用 `AskUserQuestion` 确认「允许加载本地扩展吗？」（继续 / 取消），取消就停。
 
-运行这条命令：新建会话时由 Pi 生成 ID，broker 用 `get_state` 拿到会话文件；用旧会话时直接拿绑定里的 ID 恢复。broker 以 `pi --mode rpc` 常驻，拿到会话文件后写绑定并输出 `BOUND=`。**看到 `BOUND=` 才算成功**；`BAD_TASK_MODE` / `NOT_BOUND` / `NO_SESSION` 就贴出来并停。
+运行这条命令：新建会话时由 Pi 生成 ID，broker 用 `get_state` 拿到会话文件；用旧会话时直接拿绑定里的 ID 恢复。broker 以 `pi --mode rpc` 常驻，拿到会话文件后写绑定并输出 `BOUND=`。**看到 `BOUND=` 才算成功**；`BAD_TASK_MODE` / `NOT_BOUND` / `NO_SESSION` / `ALREADY_RUNNING` 就贴出来并停。
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "<工作区>" "<new|bind>" "start"
@@ -138,6 +138,12 @@ Pi 跑着的时候要纠偏用 `/pi:steer <指令>`，要停用 `/pi:abort`；�
 
 ```bash
 while [ ! -f .pi-done ] && kill -0 "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; do sleep 2; done; echo PI_DONE
+```
+
+多成员：对每个成员目录各跑一遍，不要只在主工作区等：
+
+```bash
+for d in pi-team/*/; do (cd "$d" && while [ ! -f .pi-done ] && kill -0 "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; do sleep 2; done); done; echo PI_DONE
 ```
 
 协同模式：派单后你先写自己负责的文件；Pi 在后台跑，收到 `PI_DONE` 再复核 Pi 的文件和冲突。

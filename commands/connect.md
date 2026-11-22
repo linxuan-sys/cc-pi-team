@@ -52,7 +52,7 @@ if [ -n "$N" ]; then
   [ -f "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" ] || printf '{}' > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"
   OTHER=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "$FILE" 'to_entries[] | select(.key != $sid) | select((.value | if type=="array" then . else [.] end) | index($p)) | .key' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null | head -1)
   [ -n "$OTHER" ] && { echo OCCUPIED; exit 0; }
-  jq --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "$FILE" '.[$sid] = ((.[$sid] // []) | if type=="array" then . else [.] end | if index($p) then . else . + [$p] end)' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" || { echo BIND_FAILED; exit 1; }
+  jq --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "$FILE" '.[$sid] = (((.[$sid] // []) | if type=="array" then . else [.] end | map(select(. != $p))) + [$p])' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" || { echo BIND_FAILED; exit 1; }
   echo "BOUND"
 fi
 ```

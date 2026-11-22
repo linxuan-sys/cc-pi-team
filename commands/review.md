@@ -98,11 +98,13 @@ jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "${CLAUDE_PLUGIN_ROOT}/pi-
 
 陌生仓库先用 `AskUserQuestion` 确认「允许加载本地扩展吗？」（继续 / 取消），取消就停。
 
-运行这条命令：新建会话时由 Pi 生成 ID，broker 用 `get_state` 拿到会话文件；用旧会话时直接拿绑定里的 ID 恢复。broker 以 `pi --mode rpc` 常驻，拿到会话文件后写绑定并输出 `BOUND=`。**看到 `BOUND=` 才算成功**；`BAD_TASK_MODE` / `NOT_BOUND` / `NO_SESSION` 就贴出来并停。
+运行这条命令：新建会话时由 Pi 生成 ID，broker 用 `get_state` 拿到会话文件；用旧会话时直接拿绑定里的 ID 恢复。broker 以 `pi --mode rpc` 常驻，拿到会话文件后写绑定并输出 `BOUND=`。**看到 `BOUND=` 才算成功**；`BAD_TASK_MODE` / `NOT_BOUND` / `NO_SESSION` / `ALREADY_RUNNING` 就贴出来并停。
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "$PWD" "<new|bind>" "review"
 ```
+
+并行审：把 `$PWD` 换成对应的 `review/reviewN`；三个方向各自派单，不要都用主工作区（会 `ALREADY_RUNNING`）。
 
 ## 4. 等 Pi 结束
 
@@ -112,6 +114,12 @@ Pi 跑着的时候要纠偏用 `/pi:steer <指令>`，要停用 `/pi:abort`；�
 
 ```bash
 while [ ! -f .pi-done ] && kill -0 "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; do sleep 2; done; echo PI_DONE
+```
+
+并行审：对 `review/review*/` 每个目录各跑一遍，不要只在主工作区等：
+
+```bash
+for d in review/review*/; do (cd "$d" && while [ ! -f .pi-done ] && kill -0 "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; do sleep 2; done); done; echo PI_DONE
 ```
 
 ## 5. 复核
@@ -130,7 +138,7 @@ while [ ! -f .pi-done ] && kill -0 "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; do 
 - **自动模式通用步骤**：
   1. 只有用户同意建仓库/分支才提交到本地 `pi/team`；没同意就不提交。提交信息 `fix: review round <n>`，排除 `.pi-*`，不 push；HEAD 没变不许重跑第 3、4 节。
   2. 问题清单和修复说明写入下一份 `.pi-review-task-<审核者>-<n+1>.txt`，再复制成 `.pi-review-task.txt`；**不要覆盖旧文件**，旧编号保留存档。
-  3. **立刻**执行第 3 节末尾的 bash：当前目录有同目录绑定用 `bind`，否则用 `new`；不要再走第 3 节的提问。复核、再修；只有用户同意建分支才再提交。
+  3. **立刻**执行第 3 节末尾的 bash：单审/复审在当前目录有同目录绑定用 `bind`，否则用 `new`；**疯狂模式的终审第一次必须用 `new`**（全新审核者），之后同一位复审才用 `bind`。不要再走第 3 节的提问。复核、再修；只有用户同意建分支才再提交。
   4. 中途不要问用户，不要每轮汇报；只在通过、达到轮数上限、或必须用户拍板时停。
   5. 结束时一次性汇报：共几轮、每轮修了什么、最终结论、剩余问题。
 
