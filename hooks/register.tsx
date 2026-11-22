@@ -3,6 +3,7 @@ import type { Register } from 'claude-code'
 
 const PANE = 'pi-view'
 const MAX_READ = 3 * 1024 * 1024 // 每次最多读 3 MiB，避开引擎 4 MiB 上限
+const SKIP_READ = 2 * 1024 * 1024 // 字节读按 2 MiB 分块：base64 后约 2.7 MiB，留足 4 MiB 余量
 const MAX_KEEP = 5000
 const MAX_BYTES = 1024 * 1024 // encoded 总量：JSON 转义后仍远低于引擎 4 MiB 写入上限
 const MAX_ENTRY = 200_000 // 单条正文上限（UTF-16 单元，最坏约 800 KB），保证最新一条一定装得进 MAX_BYTES
@@ -33,8 +34,9 @@ let lastSize = -1
 let lastMtime = -1
 let running = false
 let dirty = false
-let skinsOff = false
+let skinsDownUntil = 0
 let stopTick: (() => void) | null = null
+let tickSid = ''
 let entries: Entry[] = []
 const seen = new Set<string>()
 let generation = 0
@@ -42,7 +44,7 @@ let lastBindError = ''
 let drawnCache = new Map<string, any>()
 let drawnCacheKey = ''
 
-// UTF-8 字节数（代理对算 4 字节），不依赖 TextEncoder
+// UTF-8 字节数（代理对算 4 字节）；手写是为了不分配编码器缓冲
 function byteLen(text: string): number {
   let n = 0
   for (let i = 0; i < text.length; i++) {
@@ -77,13 +79,14 @@ function parseEntries(raw: string, base: number): Entry[] {
     const m = d.message ?? {}
     if (m.role !== 'assistant' && m.role !== 'user') continue
     if (!Array.isArray(m.content)) continue
-    const mid = String(d.id ?? '')
+    const mid = String(d.id ?? '').slice(0, 128)
     m.content.forEach((b: any, i: number) => {
       const key = mid === '' ? `${lineStart}:${i}` : `${mid}:${i}`
       if (b?.type === 'toolCall' && m.role === 'assistant') {
         const cmd = b.arguments?.command ?? b.arguments?.path ?? ''
-        const one = String(cmd).split('\n')[0].replace(CTRL, ' ').slice(0, 120)
-        out.push({ key, kind: 'tool', text: TOOL + (b.name ?? 'tool') + (one ? ': ' + one : '') })
+        const one = (String(cmd).split('\n')[0] ?? '').replace(CTRL, ' ').slice(0, 120)
+        const name = String(b.name ?? 'tool').slice(0, 64)
+        out.push({ key, kind: 'tool', text: TOOL + name + (one ? ': ' + one : '') })
         return
       }
       if (b?.type !== 'text' || typeof b.text !== 'string') return
@@ -104,15 +107,19 @@ function parseEntries(raw: string, base: number): Entry[] {
 
 // 手工 base64 解码，避免依赖运行时是否提供 atob/Buffer
 function decodeBase64(s: string): Uint8Array {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-  const clean = s.replace(/=+$/, '')
-  const out = new Uint8Array(Math.floor((clean.length * 3) / 4))
+  const out = new Uint8Array(Math.floor((s.length * 3) / 4))
   let buf = 0
   let bits = 0
   let o = 0
-  for (let i = 0; i < clean.length; i++) {
-    const v = chars.indexOf(clean[i])
-    if (v < 0) continue
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    let v: number
+    if (c >= 65 && c <= 90) v = c - 65
+    else if (c >= 97 && c <= 122) v = c - 71
+    else if (c >= 48 && c <= 57) v = c + 4
+    else if (c === 43) v = 62
+    else if (c === 47) v = 63
+    else continue // '=' 和非法字符
     buf = (buf << 6) | v
     bits += 6
     if (bits >= 8) {
@@ -123,20 +130,15 @@ function decodeBase64(s: string): Uint8Array {
   return out.subarray(0, o)
 }
 
-// 在字节空间里跳过一条超长行，返回下一个换行之后的字节位置；不支持字节读则返回 from
+// 在字节空间里跳过一条超长行，返回下一个换行之后的字节位置；读失败交给 poll 记录并重试
 async function skipOversizeLine($: any, target: string, from: number, to: number): Promise<number> {
   let at = from
   while (at < to) {
-    const len = Math.min(MAX_READ, to - at)
-    let bytes: Uint8Array | null = null
-    try {
-      const res = await $.fs.read(target, { offset: at, length: len, as: 'bytes' })
-      const b64 = typeof res === 'string' ? res : res?.base64
-      if (typeof b64 === 'string') bytes = decodeBase64(b64)
-    } catch {
-      return from
-    }
-    if (bytes === null) return from
+    const len = Math.min(SKIP_READ, to - at)
+    const res = await $.fs.read(target, { offset: at, length: len, as: 'bytes' })
+    const b64 = typeof res === 'string' ? res : res?.base64
+    if (typeof b64 !== 'string') throw new Error('字节读没有返回 base64')
+    const bytes = decodeBase64(b64)
     const nl = bytes.indexOf(0x0a)
     if (nl >= 0) return at + nl + 1
     at += bytes.length
@@ -161,7 +163,7 @@ async function boundPath($: any): Promise<string> {
     const root = String((rootStat as any)?.realPath ?? '')
     if (!root || !real.startsWith(root.replace(/\/+$/, '') + '/')) return ''
     lastBindError = ''
-    return p.trim()
+    return real
   } catch (error: unknown) {
     const why = error instanceof Error ? error.message : String(error)
     if (why !== lastBindError) {
@@ -265,6 +267,7 @@ async function poll($: any) {
       reset()
       return
     }
+    lastBindError = ''
     if (!target) {
       if (shownPath) {
         shownPath = ''
@@ -336,19 +339,23 @@ async function poll($: any) {
     // prime 中途失败时丢掉半截 entries，下一轮从头读，免得顺序错乱。
     if (!primed) reset()
     dirty = true
-    try {
-      const why = error instanceof Error ? error.message : String(error)
-      $.ui.log(`pi-pane: ${why}`, { to: 'debug' })
-    } catch {
-      // 日志本身失败也不影响轮询
+    const why = error instanceof Error ? error.message : String(error)
+    if (why !== lastBindError) {
+      lastBindError = why
+      try {
+        $.ui.log(`pi-pane: ${why}`, { to: 'debug' })
+      } catch {
+        // 日志本身失败也不影响轮询
+      }
     }
   } finally {
     running = false
   }
 }
 
-function startTick($: any) {
+async function startTick($: any) {
   if (stopTick) stopTick()
+  tickSid = await $.session.id().catch(() => '')
   stopTick = $.clock.every(1000, () => void poll($))
 }
 
@@ -364,9 +371,9 @@ export const register: Register = on => {
       description: 'Unbind this conversation from Pi',
       immediate: true,
     })
-    skinsOff = false
+    skinsDownUntil = 0
     invalidate()
-    startTick($)
+    await startTick($)
     return next(e)
   })
 
@@ -379,10 +386,14 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    const sid = await $.session.id().catch(() => '')
+    // 单例面板只属于 ticker 那个会话；别的对话结束别清它的屏
+    if (tickSid && sid !== tickSid) return next(e)
     // /clear 和 resume 后进程继续、新会话不会再触发 session.start，轮询必须留着
     if (e.reason !== 'clear' && e.reason !== 'resume' && stopTick) {
       stopTick()
       stopTick = null
+      tickSid = ''
     }
     shownPath = ''
     invalidate()
@@ -407,9 +418,11 @@ export const register: Register = on => {
     if (!old) return { text: '当前对话本来就没绑定 Pi' }
     delete map[self]
     await $.fs.write(await bindingsFile($), JSON.stringify(map, null, 2))
-    shownPath = ''
-    invalidate()
-    await update($, lines, () => [])
+    if (!tickSid || self === tickSid) {
+      shownPath = ''
+      invalidate()
+      await update($, lines, () => [])
+    }
     return { text: `已解绑: ${old}` }
   })
 
@@ -460,16 +473,17 @@ async function drawPane($: any, e: any) {
     drawnCache.clear()
     drawnCacheKey = cacheKey
   }
+  const bridge = ($ as any).skins
   const drawn = await Promise.all(
     list.map(async item => {
-      if (item.kind !== 'text' || skinsOff) return null
+      if (item.kind !== 'text' || !bridge || Date.now() < skinsDownUntil) return null
       if (drawnCache.has(item.key)) return drawnCache.get(item.key)
       try {
-        const out = (await ($ as any).skins.markdown({ surface, text: item.text, columns })) ?? null
-        drawnCache.set(item.key, out)
+        const out = (await bridge.markdown({ surface, text: item.text, columns })) ?? null
+        if (out !== null) drawnCache.set(item.key, out)
         return out
       } catch {
-        skinsOff = true // 没有 skins 桥：本次会话不再尝试
+        skinsDownUntil = Date.now() + 30_000 // 瞬态失败：半分钟后再试，别整场会话降级
         return null
       }
     }),
