@@ -142,7 +142,7 @@ while [ "$(cat /proc/$(cat .pi-pid)/comm 2>/dev/null)" = "pi" ]; do sleep 2; don
 - 每轮进行完修改后，若上面用户同意创建分支或建立Git仓库，则推送（必须）。用户不同意则不推送。
 - 小问题（拼写、格式、非核心架构问题）→ 自己改，报告注明「这部分由我修补」。
 - 通过后：用户同意建仓库/分支才提交到 `pi/team`（排除 `.pi-*`，提交信息 `fix: <简述>`，不要 `git add -A`）；没同意就跳过提交，直接汇报。
-- 收尾后，用 `AskUserQuestion` 问「是否开启审查模式？」：是 → 读 `${CLAUDE_PLUGIN_ROOT}/commands/review.md` 并照它执行（审查流程和汇报走 review.md）；否 → 进第 7 节汇报。
+- 收尾后，用 `AskUserQuestion` 问「是否开启审查模式？」：是 → 先删当前对话的绑定（jq del 当前 sid，不要清空整表），再读 `${CLAUDE_PLUGIN_ROOT}/commands/review.md`，按它新建一个干净的 Pi 会话审查；否 → 进第 7 节汇报。
 
 ## 7. 汇报
 
