@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Pi 模式（团队 / 协同）
 
+**消息发错 / 要重发**：如果用户说这条消息发错了、或者要重新发，并把消息给你，不要重新派单；直接读 `${CLAUDE_PLUGIN_ROOT}/commands/steer.md`，按它把这条消息 steer 给正在跑的 Pi。
+
 **所有提问都用 `AskUserQuestion`**，不要用文字问；拿到答案就在同一轮继续。
 
 ## 模式（先问）
