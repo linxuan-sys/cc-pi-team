@@ -30,4 +30,7 @@ const s = net.connect(sock, () => { s.end(payload + "\n"); });
 s.on("error", () => process.exit(1));
 ' "$SOCK" "$PAYLOAD" || { echo SEND_FAILED; exit 1; }
 
-echo "${CMD^^}ED"
+case "$CMD" in
+  steer) echo STEERED ;;
+  abort) echo ABORTED ;;
+esac

@@ -39,6 +39,7 @@ let shownPath = ''
 let selected = -1
 let savedOffset = -1
 let restoring = false
+let tickSid = ''
 let lastSize = 0
 let running = false
 let noSkins = false
@@ -172,6 +173,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'pi-pane', description: 'Open the Pi output pane', immediate: true })
     await $.command.register({ name: 'pi-unbind', description: 'Clear all Pi bindings', immediate: true })
     noSkins = false
+    tickSid = await $.session.id()
     stopTick?.cancel()
     stopTick = $.clock.every(1000, () => void poll($))
     return next(e)
@@ -185,6 +187,8 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    const sid = await $.session.id()
+    if (tickSid && sid !== tickSid) return next(e)
     // /clear 和 resume 后进程继续、新会话不会再触发 session.start，轮询必须留着
     if (e.reason !== 'clear' && e.reason !== 'resume' && stopTick) {
       stopTick.cancel()
