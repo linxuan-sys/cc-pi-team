@@ -255,12 +255,12 @@ async function drawPane($: any, e: any) {
         <Text dimColor>  abort the running Pi</Text>
         <Text color="#7ea898">/pi:stop</Text>
         <Text dimColor>  stop Pi, optionally unbind</Text>
+        <Text color="#7ea898">/pi:clear</Text>
+        <Text dimColor>  clear temporary Pi files</Text>
         <Text color="#7ea898">/pi-pane</Text>
         <Text dimColor>  open this output pane</Text>
         <Text color="#7ea898">/pi-unbind</Text>
         <Text dimColor>  clear all Pi bindings</Text>
-        <Text color="#7ea898">/pi:clear</Text>
-        <Text dimColor>  clear temporary Pi files</Text>
       </Box>
     )
   const list = raw.map(s => {
