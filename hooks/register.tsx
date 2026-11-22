@@ -205,7 +205,7 @@ async function drawPane($: any, e: any) {
         <Text dimColor>Not bound to a Pi session</Text>
         <Text> </Text>
         <Text color="#7ea898">/pi:start</Text>
-        <Text dimColor>  Claude plans, Pi codes, Claude reviews</Text>
+        <Text dimColor>  team or collaboration</Text>
         <Text color="#7ea898">/pi:review</Text>
         <Text dimColor>  Pi reviews, Claude fixes</Text>
         <Text color="#7ea898">/pi:connect</Text>
