@@ -71,7 +71,7 @@ disable-model-invocation: true
 
 ## 4. 定会话
 
-先读本对话的绑定：`jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`。
+先读本对话的绑定：`jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`（文件不存在按没有绑定处理）。
 
 - **有绑定且文件存在** → 从文件第一行取 `id`（没有就从 `<时间戳>_<id>.jsonl` 文件名里取）写进 `.pi-session-id`；杀掉本工作区其他还活着的 **headless** `pi`（`pi -p ...`；按 `pgrep -f "^pi .*--session-id"` 找，用 `/proc/<pid>/cwd` 过滤，交互式 `pi --session` 不动）；再看这个 id 是否在跑，输出 `BOUND_RUNNING:<id>` 或 `BOUND_IDLE:<id>`。
 - **没有绑定** → 看本工作区有没有在跑的 `pi`，有就输出 `RUNNING=<id>`，没有输出 `RUNNING=`。
@@ -95,7 +95,7 @@ disable-model-invocation: true
 
 `--approve` 会加载项目本地扩展/设置；陌生仓库先告诉用户。
 
-然后在 `~/.pi/agent/sessions/*/*_<ID>.jsonl` 里等一个首行 `cwd` 等于当前工作区的文件，最多 60 秒。等到就输出 `FILE=<路径>`；等不到就杀掉这个 id 的 pi，报 `NO_SESSION`，停。同时确认这个 id 的 pi 真在跑（`pgrep -f` 命中）；没起来就贴 `.pi-events.jsonl` 尾部，停。
+然后在 `~/.pi/agent/sessions/*/*_<ID>.jsonl` 里等一个首行 `cwd` 等于当前工作区的文件，最多 60 秒。等到就输出 `FILE=<路径>`；等不到就杀掉这个 id 的 pi，报 `NO_SESSION`，停。等到了 FILE 后，确认这个 id 的 pi 真在跑（`pgrep -f` 命中）；落空时先看 `.pi-events.jsonl` 尾部：已正常结束（有汇报、无错误）就按已完成处理，只有既没进程、events 也报错/为空才贴尾部并停。
 
 ### 5.2 写绑定
 

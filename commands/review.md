@@ -15,7 +15,7 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 用 `AskUserQuestion` 问「这次审查用哪种模式？」：
 
 1. **自动模式** —— 每轮 Pi 审完，我复核、修复、提交本地 `pi/team`，再送审，直到通过或到轮数上限。
-2. **计划模式** —— Pi 每报一条，我只确认是否真实存在并给修复建议；不改代码、不提交。用户说「改」之后才动手。
+2. **计划模式** —— Pi 每报一条，我只确认是否真实存在并给修复建议；不改代码、不提交修复（§0 的 baseline/wip 准备性提交照常）。用户说「改」之后才动手。
 
 选了自动模式，再问「自动模式强度？」：**强** 10 轮 / **中** 5 轮 / **弱** 3 轮。
 
@@ -69,9 +69,11 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 最后给结论：通过 / 有条件通过 / 不通过。
 ```
 
+计划模式：把第 5 条替换为「本次只报告，不修复、不提交；不要按修复轮组织输出」。
+
 ## 3. 定会话
 
-先读本对话的绑定：`jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`。
+先读本对话的绑定：`jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`（文件不存在按没有绑定处理）。
 
 - **有绑定且文件存在** → 从文件第一行取 `id`（没有就从文件名里取）写进 `.pi-session-id`；杀掉本工作区其他还活着的 **headless** `pi`（`pi -p ...`；按 `pgrep -f "^pi .*--session-id"` 找，用 `/proc/<pid>/cwd` 过滤，交互式 `pi --session` 不动）；再看这个 id 是否在跑，输出 `BOUND_RUNNING:<id>` 或 `BOUND_IDLE:<id>`。
 - **没有绑定** → 看本工作区有没有在跑的 `pi`，有就输出 `RUNNING=<id>`，没有输出 `RUNNING=`。
@@ -91,7 +93,7 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 
 `setsid nohup pi -p --approve --mode json --session-id "$(cat .pi-session-id)" "$(cat .pi-review-task.txt)" > .pi-events.jsonl 2>&1 < /dev/null &`
 
-然后在 `~/.pi/agent/sessions/*/*_<ID>.jsonl` 里等一个首行 `cwd` 等于当前工作区的文件，最多 60 秒。等到就输出 `FILE=<路径>`；等不到就杀掉这个 id 的 pi，报 `NO_SESSION`，停。同时确认这个 id 的 pi 真在跑（`pgrep -f` 命中）；没起来就贴 `.pi-events.jsonl` 尾部，停。
+然后在 `~/.pi/agent/sessions/*/*_<ID>.jsonl` 里等一个首行 `cwd` 等于当前工作区的文件，最多 60 秒。等到就输出 `FILE=<路径>`；等不到就杀掉这个 id 的 pi，报 `NO_SESSION`，停。等到了 FILE 后，确认这个 id 的 pi 真在跑（`pgrep -f` 命中）；落空时先看 `.pi-events.jsonl` 尾部：已正常结束（有汇报、无错误）就按已完成处理，只有既没进程、events 也报错/为空才贴尾部并停。
 
 ### 4.2 写绑定
 
@@ -126,7 +128,7 @@ Pi 有全套工具和全部 MCP；"工作区只读"只写在任务书里。`pi -
 
 ## 7. 复核之后（按模式）
 
-- **计划模式**：逐条给用户：是否属实、证据（文件:行）、修复建议；然后停。用户没说「改」之前不动代码、不提交。
+- **计划模式**：逐条给用户：是否属实、证据（文件:行）、修复建议；然后停。用户没说「改」之前不动代码、不提交。用户说「改」→ 按自动模式的 1–3 步修复、提交、复审（轮数上限照所选强度）。
 - **自动模式**：按下面循环，最多审到开工前选的轮数（强 10 / 中 5 / 弱 3）；到上限仍未通过就停，如实汇报。
 
 1. 修完提交到本地分支 `pi/team`（不 push 远程）：用 `git add -u -- . ':(exclude).pi-*'` 加 `git add -- <本轮新增文件>` 提交。

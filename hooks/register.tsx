@@ -5,6 +5,7 @@ const PANE = 'pi-view'
 const MAX_READ = 3 * 1024 * 1024 // 每次最多读 3 MiB，避开引擎 4 MiB 上限
 const MAX_KEEP = 5000
 const MAX_BYTES = 1024 * 1024 // encoded 总量：JSON 转义后仍远低于引擎 4 MiB 写入上限
+const MAX_ENTRY = 200_000 // 单条正文上限（UTF-16 单元，最坏约 800 KB），保证最新一条一定装得进 MAX_BYTES
 const SEP = '\u0001'
 const TOOL = '⚙ '
 // 工具命令里不显示控制字符/ANSI 转义
@@ -86,8 +87,13 @@ function parseEntries(raw: string, base: number): Entry[] {
         return
       }
       if (b?.type !== 'text' || typeof b.text !== 'string') return
-      const text = b.text.replace(TEXT_CTRL, '').trim()
+      let text = b.text.replace(TEXT_CTRL, '').trim()
       if (!text) return
+      if (text.length > MAX_ENTRY) {
+        text = text.slice(0, MAX_ENTRY)
+        if (/[\ud800-\udbff]$/.test(text)) text = text.slice(0, -1) // 别切在代理对中间
+        text += '…'
+      }
       if (m.role === 'assistant') out.push({ key, kind: 'text', text })
       else if (m.role === 'user') out.push({ key, kind: 'task', text })
     })
@@ -316,6 +322,10 @@ async function poll($: any) {
       trim()
       await update($, lines, encoded)
       dirty = false
+      if (gen !== generation) {
+        reset()
+        return
+      }
     }
   } catch (error: unknown) {
     if (gen !== generation) {
@@ -453,11 +463,10 @@ async function drawPane($: any, e: any) {
   const drawn = await Promise.all(
     list.map(async item => {
       if (item.kind !== 'text' || skinsOff) return null
-      const hit = drawnCache.get(item.key)
-      if (hit !== undefined) return hit
+      if (drawnCache.has(item.key)) return drawnCache.get(item.key)
       try {
         const out = (await ($ as any).skins.markdown({ surface, text: item.text, columns })) ?? null
-        if (out !== null) drawnCache.set(item.key, out)
+        drawnCache.set(item.key, out)
         return out
       } catch {
         skinsOff = true // 没有 skins 桥：本次会话不再尝试
