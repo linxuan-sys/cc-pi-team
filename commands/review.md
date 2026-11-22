@@ -85,8 +85,7 @@ jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "${CLAUDE_PLUGIN_ROOT}/pi-
 - 有 `ALREADY_BOUND` → 用 `AskUserQuestion` 问「这个对话已经有绑定了，怎么处理？」：「当前目录有绑定就继续用」/「直接新建」。
   - 继续用 → 当前工作区有同目录绑定才传 `bind`；没有就传 `new`。
   - 新建 → 传 `new`。
-  - 不用 → 继续下面的问题。
-- 没有输出 → 继续下面的问题。
+- 没有输出 → 直接继续下面的问题。
 
 用 `AskUserQuestion` 问「这次是新建 Pi 会话，还是绑定已有会话？」：
 

@@ -43,7 +43,7 @@ while IFS=$'\t' read -r ts cwd f; do
 done < <(
   for f in ~/.pi/agent/sessions/*/*.jsonl; do
     head -1 "$f" 2>/dev/null | jq -r --arg f "$f" --arg d "$DIR" '
-      select(.cwd == $d or (.cwd | startswith($d + "/"))) |
+      select(.cwd == $d) |
       [.timestamp, .cwd, $f] | @tsv' 2>/dev/null
   done | sort -r
 )
