@@ -12,7 +12,7 @@ case "$TASK_MODE" in
   *) echo BAD_TASK_MODE; exit 1 ;;
 esac
 cd "$WS" || exit 1
-WS="$(pwd)"
+WS="$(pwd -P)"
 [ -f "$TASK_FILE" ] || { echo BAD_TASK_MODE; exit 1; }
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
@@ -28,7 +28,7 @@ if [ "$MODE" = "bind" ]; then
   while IFS= read -r F; do
     [ -f "$F" ] || continue
     CWD=$(head -1 "$F" | jq -r '.cwd // empty')
-    [ "$CWD" = "$WS" ] && FILE="$F"
+    [ -n "$CWD" ] && [ "$(cd "$CWD" 2>/dev/null && pwd -P)" = "$WS" ] && FILE="$F"
   done <<< "$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty | if type=="array" then .[] else . end' "$ROOT/pi-bindings.json" 2>/dev/null)"
   [ -n "$FILE" ] || { echo NOT_BOUND; exit 1; }
   ID=$(head -1 "$FILE" | jq -r '.id // empty')

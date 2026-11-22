@@ -112,8 +112,9 @@ disable-model-invocation: true
 jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" >/dev/null 2>&1 && echo "ALREADY_BOUND"
 ```
 
-- 有 `ALREADY_BOUND` → 用 `AskUserQuestion` 问「这个对话已经绑定了一条 Pi 会话，直接用它吗？」：选项「直接用它」/「不用，重新选」。
-  - 直接用它 → 第二个参数传 `bind`，跳到下面的派单脚本。
+- 有 `ALREADY_BOUND` → 用 `AskUserQuestion` 问「这个对话已经有绑定了，怎么处理？」：选项「当前目录有绑定就继续用」/「直接新建」。
+  - 继续用 → 当前工作区有同目录绑定才传 `bind`；没有就传 `new`。
+  - 新建 → 传 `new`。
   - 不用 → 继续下面的问题。
 - 没有输出 → 直接继续下面的问题。
 

@@ -24,6 +24,7 @@ disable-model-invocation: true
 ```bash
 DIR="<工作区>"
 DIR="${DIR%/}"
+DIR="$(cd "$DIR" 2>/dev/null && pwd -P || printf '%s' "$DIR")"
 N="<编号或空>"
 n=0
 FILE=""
