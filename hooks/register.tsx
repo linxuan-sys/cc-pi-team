@@ -170,6 +170,7 @@ async function poll($: any) {
 
 const PI_USAGE = `【Pi 插件使用说明】
 本对话已安装 pi 插件；未启用 Pi 时它不会自动行动，只有你输入命令才生效。
+/pi:start 开启 Pi 模式并读说明书
 /pi:team 团队/协同模式：Claude 出计划、Pi 写代码、Claude 审核
 /pi:review 只读审查：Claude 修复并按结论复审，可多轮/并行/疯狂模式
 /pi:steer <指令> 给正在跑的 Pi 插话纠偏，不重启
@@ -262,6 +263,8 @@ async function drawPane($: any, e: any) {
         <Text> </Text>
         <Text dimColor>Not bound to a Pi session</Text>
         <Text> </Text>
+        <Text color="#7ea898">/pi:start</Text>
+        <Text dimColor>  enable Pi mode / read manual</Text>
         <Text color="#7ea898">/pi:team</Text>
         <Text dimColor>  team or collaboration</Text>
         <Text color="#7ea898">/pi:review</Text>

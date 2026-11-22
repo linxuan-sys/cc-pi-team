@@ -6,6 +6,7 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 
 ## What it does
 
+- `/pi:start` — enable Pi mode and read the plugin manual
 - `/pi:team` — Pi mode: team or collaboration; Claude plans, Pi implements, Claude reviews and commits
 - `/pi:review` — Pi reviews code read-only, Claude fixes, re-review until it passes
 - `/pi:steer` — send a course correction to the running Pi (no restart)
@@ -81,6 +82,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 |---|---|
 | `.claude-plugin/plugin.json` | Plugin manifest |
 | `.claude-plugin/marketplace.json` | Lets the folder act as its own marketplace |
+| `commands/start.md` | `/pi:start` prompt: the Pi plugin manual and entry |
 | `commands/team.md` | `/pi:team` prompt |
 | `commands/review.md` | `/pi:review` prompt |
 | `commands/steer.md` | `/pi:steer` prompt: send a live course correction |
@@ -118,6 +120,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 
 ## 命令
 
+- `/pi:start` —— 开启 Pi 模式并读插件说明书
 - `/pi:team` —— Pi 模式：团队或协同；Claude 出计划，Pi 实现，Claude 审核并提交
 - `/pi:review` —— Pi 只读审查代码，Claude 按结论修复，再审直到通过
 - `/pi:steer` —— 给正在跑的 Pi 发一句纠偏指令，不用重启
@@ -186,6 +189,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc（常驻）
 |---|---|
 | `.claude-plugin/plugin.json` | 插件清单 |
 | `.claude-plugin/marketplace.json` | 让这个目录本身能当市场被安装 |
+| `commands/start.md` | `/pi:start` 的提示词：Pi 插件说明书与入口 |
 | `commands/team.md` | `/pi:team` 的提示词 |
 | `commands/review.md` | `/pi:review` 的提示词 |
 | `commands/steer.md` | `/pi:steer` 的提示词：给运行中的 Pi 发纠偏指令 |
