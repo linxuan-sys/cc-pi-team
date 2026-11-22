@@ -33,8 +33,10 @@ type Kind = 'task' | 'tool' | 'text'
 type Entry = { key: string; kind: Kind; text: string }
 
 const lines = atom({ plugin: 'pi', key: 'lines' } as const, [] as string[], { shape: 'lines-2' })
+const binds = atom({ plugin: 'pi', key: 'binds' } as const, { files: [] as string[], idx: -1 }, { shape: 'binds-1' })
 
 let shownPath = ''
+let selected = -1
 let lastSize = 0
 let running = false
 let noSkins = false
@@ -94,14 +96,14 @@ async function consume($: any, file: string, from: number, to: number): Promise<
   return from + encoder.encode(body).length
 }
 
-async function boundPath($: any): Promise<string> {
+async function boundPaths($: any): Promise<string[]> {
   try {
     const map = JSON.parse(await $.fs.read(`${$.plugin.root}/pi-bindings.json`))
     const v = map?.[await $.session.id()]
-    const p = Array.isArray(v) ? v[v.length - 1] : v
-    return typeof p === 'string' && p ? p : ''
+    const list = Array.isArray(v) ? v : v ? [v] : []
+    return list.filter((p: unknown) => typeof p === 'string' && p) as string[]
   } catch {
-    return ''
+    return []
   }
 }
 
@@ -110,14 +112,20 @@ async function poll($: any) {
   running = true
   let file = ''
   try {
-    file = await boundPath($)
-    if (!file) {
+    const files = await boundPaths($)
+    if (!files.length) {
       if (shownPath) {
         shownPath = ''
         await clear($)
       }
+      const cur = await read($, binds)
+      if (cur.files.length) await update($, binds, () => ({ files: [], idx: -1 }))
       return
     }
+    const idx = selected >= 0 && selected < files.length ? selected : files.length - 1
+    file = files[idx]
+    const cur = await read($, binds)
+    if (cur.idx !== idx || cur.files.length !== files.length) await update($, binds, () => ({ files, idx }))
     if (file !== shownPath) {
       shownPath = file
       await clear($)
@@ -185,6 +193,8 @@ export const register: Register = on => {
     const file = `${$.plugin.root}/pi-bindings.json`
     await $.fs.write(file, '{}')
     shownPath = ''
+    selected = -1
+    await update($, binds, () => ({ files: [], idx: -1 }))
     await clear($)
     return { text: '绑定表已清空' }
   })
@@ -193,8 +203,9 @@ export const register: Register = on => {
 }
 
 async function drawPane($: any, e: any) {
-  const { Box, Text, Markdown } = $.ui.resolve(e)
+  const { Box, Text, Markdown, Button } = $.ui.resolve(e)
   const raw = await read($, lines)
+  const bs = await read($, binds)
   if (!shownPath)
     return (
       <Box flexDirection="column">
@@ -239,7 +250,20 @@ async function drawPane($: any, e: any) {
   )
   return (
     <Box flexDirection="column">
-      <Text dimColor>{`Pi · ${shownPath.split('/').pop()}`}</Text>
+      <Box flexDirection="row" gap={1}>
+        <Text dimColor>Pi</Text>
+        {bs.files.length > 1 && bs.files.map((_, i) => (
+          <Button
+            key={`b${i}`}
+            plain
+            dimColor={i !== bs.idx}
+            onPress={() => { selected = i; void update($, binds, () => ({ files: bs.files, idx: i })) }}
+          >
+            {`[${i + 1}]`}
+          </Button>
+        ))}
+      </Box>
+      <Text dimColor>{shownPath.split('/').pop()}</Text>
       {list.length === 0 ? (
         <Text dimColor>等待 Pi 输出…</Text>
       ) : (
