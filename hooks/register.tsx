@@ -184,6 +184,13 @@ const PI_USAGE = `【Pi 插件使用说明】
 export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const r = await next(e)
+    let bound = false
+    try {
+      const map = JSON.parse(await $.fs.read(`${$.plugin.root}/pi-bindings.json`))
+      const v = map?.[await $.session.id()]
+      bound = (Array.isArray(v) ? v.length : v ? 1 : 0) > 0
+    } catch { /* no bindings yet */ }
+    if (!bound) return r
     return { sections: [...r.sections, { id: 'pi:usage', text: PI_USAGE, scope: 'session' as const }] }
   })
 
