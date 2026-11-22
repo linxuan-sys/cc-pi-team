@@ -1,7 +1,6 @@
 ---
 description: Exit Pi team mode, unbind and resume normal work
 argument-hint:
-allowed-tools: Bash(pkill *) Bash(pgrep *) Bash(seq *) Bash(sleep *) Bash(basename *) Bash(jq *) Bash(python3 *) Bash(flock *) Bash(mktemp *) Bash(mv *) Bash(rm *) Bash(echo *) Bash(cd *) Bash(sed *) Bash(bash *) Bash(dirname *) Bash(printf *)
 disable-model-invocation: true
 ---
 
@@ -11,53 +10,15 @@ disable-model-invocation: true
 
 一条命令跑完：
 
-```bash
-set -e
-F="$HOME/.claude/pi-bindings.json"
-SID="${CLAUDE_CODE_SESSION_ID:-}"
-OUT=$(python3 -I - "$F" "$SID" <<'PY'
-import json, pathlib, sys
-p = pathlib.Path(sys.argv[1]); sid = sys.argv[2]
-data = {}
-if p.exists():
-    try:
-        data = json.loads(p.read_text(encoding='utf-8'))
-    except Exception:
-        data = {}
-sf = data.get(sid, '')
-pi_id = cwd = ''
-if sf:
-    try:
-        head = json.loads(open(sf, encoding='utf-8').readline())
-        pi_id = head.get('id', ''); cwd = head.get('cwd', '')
-    except Exception:
-        pass
-print(sf); print(pi_id); print(cwd)
-PY
-)
-SESSION_FILE=$(printf '%s\n' "$OUT" | sed -n 1p)
-PI_ID=$(printf '%s\n' "$OUT" | sed -n 2p)
-WORKSPACE=$(printf '%s\n' "$OUT" | sed -n 3p)
-if [ -z "$SESSION_FILE" ]; then echo "NOT_BOUND"; exit 0; fi
-[ -n "$PI_ID" ] || { PI_ID=$(basename "$SESSION_FILE" .jsonl); PI_ID=${PI_ID##*_}; }
-if [ -n "$PI_ID" ]; then
-  pkill -f -- "--session-id[= ]$PI_ID" >/dev/null 2>&1 || true
-  for i in $(seq 1 50); do
-    pgrep -f -- "--session-id[= ]$PI_ID" >/dev/null 2>&1 || break
-    sleep 0.1
-  done
-fi
-tmp=$(mktemp -p "$(dirname "$F")")
-trap 'rm -f "$tmp"' EXIT
-flock "$F.lock" bash -c 'jq --arg sid "$1" "del(.[$sid])" "$2" > "$3" && mv "$3" "$2"' _ "$SID" "$F" "$tmp"
-echo "UNBOUND"
-echo "SESSION_FILE=$SESSION_FILE"
-echo "PI_ID=$PI_ID"
-echo "WORKSPACE=$WORKSPACE"
-```
+1. 从 `${CLAUDE_PLUGIN_ROOT}/pi-bindings.json` 读本对话的会话文件；没有就回 `NOT_BOUND`，结束。
+2. 读它第一行，拿 `id` 和 `cwd`（`id` 缺失就从文件名里取）。
+3. 杀掉这个 id 的 pi，等它退出（最多 5 秒）：`pkill -f "^pi .*--session-id[= ]<id>"`。
+4. 删掉本对话的键：`jq --arg sid "$CLAUDE_CODE_SESSION_ID" 'del(.[$sid])' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`。
+5. 回 `UNBOUND`、`PI_ID`、`WORKSPACE`。
 
 - `NOT_BOUND` → 回「当前对话本来就没绑定 Pi，跳过」。
 - `UNBOUND` → 解绑成功，面板 1 秒内清空。
+- `jq` 报错（绑定表不是合法 JSON）→ 贴给用户，停；不解绑、不动表（先备份再手工修）。
 
 ## 2. 汇报
 

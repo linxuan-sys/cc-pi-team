@@ -14,11 +14,7 @@ type Entry = { key: string; kind: Kind; text: string }
 
 let bindingsPath = ''
 async function bindingsFile($: any): Promise<string> {
-  if (!bindingsPath) {
-    const home = await $.env.get('HOME')
-    if (!home) throw new Error('HOME 未设置，无法定位绑定表')
-    bindingsPath = `${home}/.claude/pi-bindings.json`
-  }
+  if (!bindingsPath) bindingsPath = `${$.plugin.root}/pi-bindings.json`
   return bindingsPath
 }
 
@@ -32,6 +28,7 @@ let primed = false
 let lastSize = -1
 let lastMtime = -1
 let running = false
+let dirty = false
 let skinsOff = false
 let stopTick: (() => void) | null = null
 let entries: Entry[] = []
@@ -145,7 +142,11 @@ async function boundPath($: any): Promise<string> {
     if (st.kind !== 'file') return ''
     const real = String((st as any).realPath ?? '')
     const home = await $.env.get('HOME')
-    if (!home || !real.startsWith(`${home}/.pi/agent/sessions/`) || !real.endsWith('.jsonl')) return ''
+    if (!home || !real.endsWith('.jsonl')) return ''
+    // ~/.pi 可能是符号链接，按 sessions 根的真实路径比较，而不是字面前缀
+    const rootStat = await $.fs.stat(`${home}/.pi/agent/sessions`, { resolve: true }).catch(() => undefined)
+    const root = String((rootStat as any)?.realPath ?? '')
+    if (!root || !real.startsWith(root.replace(/\/+$/, '') + '/')) return ''
     return p.trim()
   } catch {
     return ''
@@ -158,6 +159,7 @@ function reset() {
   lastSize = -1
   lastMtime = -1
   primed = false
+  dirty = false
 }
 
 function trim() {
@@ -231,23 +233,27 @@ async function poll($: any) {
 
     if (!primed) {
       lastSize = await consume($, target, 0, st.size)
-      primed = true
       lastMtime = mtime
       trim()
       await update($, lines, encoded)
+      primed = true
+      dirty = false
       return
     }
 
-    if (st.size === lastSize && mtime === lastMtime) return
+    if (st.size === lastSize && mtime === lastMtime && !dirty) return
     const before = entries.length
     const at = await consume($, target, lastSize, st.size)
     lastSize = at
     lastMtime = mtime
-    if (entries.length !== before) {
+    if (entries.length !== before || dirty) {
       trim()
       await update($, lines, encoded)
+      dirty = false
     }
   } catch (error: unknown) {
+    // entries 可能已前进而 atom 没写成；下一轮强制重写，避免面板永久落后
+    dirty = true
     try {
       const why = error instanceof Error ? error.message : String(error)
       $.ui.log(`pi-pane: ${why}`, { to: 'debug' })
@@ -290,7 +296,8 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
-    if (stopTick) {
+    // /clear 和 resume 后进程继续、新会话不会再触发 session.start，轮询必须留着
+    if (e.reason !== 'clear' && e.reason !== 'resume' && stopTick) {
       stopTick()
       stopTick = null
     }
@@ -309,7 +316,7 @@ export const register: Register = on => {
     const self = await $.session.id()
     let map: Record<string, string> = {}
     try {
-      map = JSON.parse(await $.fs.read(await bindingsFile($)))
+      map = JSON.parse(await $.fs.read(await bindingsFile($))) ?? {}
     } catch {
       map = {}
     }

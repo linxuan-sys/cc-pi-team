@@ -16,7 +16,7 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 ## Requirements
 
 - [Pi](https://github.com/badlogic/pi-mono) (`pi` on `PATH`) — dispatched headless (`pi -p --mode json`)
-- `jq` and `python3` — used by `/pi:start`, `/pi:review`, `/pi:connect` and `/pi:stop` to read and edit the bindings file
+- `jq` — reads and edits the bindings file and Pi session headers
 
 No ACP adapter and no `acpx`: the plugin drives Pi's own headless mode and reads its session file.
 
@@ -62,7 +62,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
                                                                   └── renders the pane
 ```
 
-- The bindings file `~/.claude/pi-bindings.json` maps one Claude Code session id
+- The bindings file `pi-bindings.json` in the plugin root (`${CLAUDE_PLUGIN_ROOT}`) maps one Claude Code session id
   to one Pi session file. One conversation binds exactly one Pi session.
 - Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl`, `.pi-session-id` and `.pi-review-base` are
   created in the working directory of each dispatch and are safe to delete.
@@ -79,8 +79,9 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 | `commands/connect.md` | `/pi:connect` prompt: pick an existing Pi session to bind |
 | `hooks/hooks.json` | Points the engine at the code entry |
 | `hooks/register.tsx` | Registers `/pi-pane` and `/pi-unbind`, polls and renders the pane |
+| `pi-bindings.json` | Binding table (created at runtime, git-ignored) |
 | `types/index.d.ts` | Plugin state declaration |
-| `tsconfig.json` | Editor/type-checking configuration only |
+| `tsconfig.json` | Editor/type-checking configuration only. It extends `.claude-plugin/types`, which the engine generates on each machine and which is not committed — a fresh clone cannot run `tsc` until the engine has written it |
 
 ## Notes
 
@@ -112,7 +113,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 ## 依赖
 
 - [Pi](https://github.com/badlogic/pi-mono)（`pi` 在 `PATH` 里）—— 用无头模式派单（`pi -p --mode json`）
-- `jq` 和 `python3` —— `/pi:start`、`/pi:review`、`/pi:connect`、`/pi:stop` 读写绑定表时用
+- `jq` —— 读写绑定表和 Pi 会话头
 
 不需要 ACP 适配器，也不需要 `acpx`：插件直接驱动 Pi 的无头模式，再读它的会话文件。
 
@@ -156,7 +157,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
                                                                   └── 渲染到侧边栏
 ```
 
-- 绑定表 `~/.claude/pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
+- 插件根目录（`${CLAUDE_PLUGIN_ROOT}`）下的绑定表 `pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一个 Pi 会话文件」。一个对话只绑一条 Pi 会话。
 - 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-session-id`、`.pi-review-base`，都是临时文件，可随时删。
 
@@ -172,8 +173,9 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 | `commands/connect.md` | `/pi:connect` 的提示词：挑一条已有 Pi 会话绑上来 |
 | `hooks/hooks.json` | 指向代码入口 |
 | `hooks/register.tsx` | 注册 `/pi-pane`、`/pi-unbind`，轮询并渲染面板 |
+| `pi-bindings.json` | 绑定表（运行时生成，已被 .gitignore 忽略） |
 | `types/index.d.ts` | 插件状态声明 |
-| `tsconfig.json` | 只给编辑器和类型检查用，运行时不参与 |
+| `tsconfig.json` | 只给编辑器和类型检查用，运行时不参与。它 extends 的 `.claude-plugin/types` 由引擎在本机生成、不随仓库分发，新克隆要先让引擎生成才能跑 `tsc` |
 
 ## 说明
 
@@ -182,7 +184,6 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 - 一个对话只绑一条 Pi 会话；同一时间只支持一个工作区。
 - 面板内容全部在内存里；唯一写盘的是绑定表（`/pi:start`、`/pi:review`、`/pi:connect`、`/pi:stop`、`/pi:unbind` 都会改）。
 - 单条消息超过 3 MiB（比如 base64 截图）会在字节空间里跳过，只显示一行"超大消息已跳过"，后续内容照常。
-- `/pi-unbind` 不带文件锁：同一时间只操作一个对话。
 - 一个进程多个对话时，面板跟随最后一个绑定的会话。
 - 表格由 skins 插件渲染；没有 skins 时退回普通 markdown。
 - `/pi-unbind` 不带文件锁，和 `/pi:start`、`/pi:stop` 并发时理论上可能互相覆盖；同一时间只操作一个对话即可避免。
