@@ -108,7 +108,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "$PWD" "<new|bind>" "review"
 
 ## 4. 等 Pi 结束
 
-Pi 跑着的时候要纠偏用 `/pi:steer <指令>`，要停用 `/pi:stop`（会杀掉所有 Pi）；不要重复派单。
+Pi 跑着的时候要纠偏用 `/pi:steer <指令>`，要停用 `/pi:abort`；不要重复派单。
 
 用 Bash 的 `run_in_background` 跑这一条，收到退出通知再进第 5 步：
 

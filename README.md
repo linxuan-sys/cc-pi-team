@@ -9,7 +9,8 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 - `/pi:start` — Pi mode: team or collaboration; Claude plans, Pi implements, Claude reviews and commits
 - `/pi:review` — Pi reviews code read-only, Claude fixes, re-review until it passes
 - `/pi:steer` — send a course correction to the running Pi (no restart)
-- `/pi:stop` — exit Pi mode: abort and kill every bound Pi process, then ask whether to unbind
+- `/pi:abort` — abort the running Pi
+- `/pi:stop` — stop the headless Pi, then ask whether to unbind
 - `/pi:connect` — connect this conversation to an existing Pi session (asks for the working directory, lists sessions, you pick one)
 - `/pi-pane` — open the Pi output pane
 - `/pi-unbind` — clear all Pi bindings
@@ -69,7 +70,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
   one conversation. The pane shows the most recently bound one.
 - Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl`, `.pi-events.stderr.log`,
   `.pi-pid`, `.pi-bound`, `.pi-done` and `.pi-rpc.sock` are created in the working directory of each dispatch,
-  so you can read and edit the task book by hand. They are safe to delete. `/pi:steer` and `/pi:stop` talk to
+  so you can read and edit the task book by hand. They are safe to delete. `/pi:steer` and `/pi:abort` talk to
   the running broker over `.pi-rpc.sock`; the broker maps them to Pi's `steer` / `abort` RPC commands.
   Pi's own session records stay in Pi's session store (`~/.pi/agent/sessions`), which the plugin only reads.
 
@@ -82,13 +83,14 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 | `commands/start.md` | `/pi:start` prompt |
 | `commands/review.md` | `/pi:review` prompt |
 | `commands/steer.md` | `/pi:steer` prompt: send a live course correction |
+| `commands/abort.md` | `/pi:abort` prompt |
 | `commands/stop.md` | `/pi:stop` prompt |
 | `commands/connect.md` | `/pi:connect` prompt: pick an existing Pi session to bind |
 | `hooks/hooks.json` | Points the engine at the code entry |
 | `hooks/register.tsx` | Registers `/pi-pane` and `/pi-unbind`, polls and renders the pane |
 | `scripts/pi-dispatch.sh` | Starts the RPC broker, waits for its binding (`start` reads `.pi-start-task.txt`, `review` reads `.pi-review-task.txt`) |
 | `scripts/pi-rpc.mjs` | Broker: spawns `pi --mode rpc`, forwards events, serves the control socket |
-| `scripts/pi-ctl.sh` | `steer` / `abort` against the running broker (`/pi:steer`, `/pi:stop`) |
+| `scripts/pi-ctl.sh` | `steer` / `abort` against the running broker (`/pi:steer`, `/pi:abort`) |
 | `vendor/pi-delegate/` | MIT-licensed RPC/JSONL skeleton adapted from LarryStanley/pi-delegate |
 | `pi-bindings.json` | Binding table (created at runtime, git-ignored) |
 | `types/index.d.ts` | Plugin state declaration |
@@ -117,7 +119,8 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
 - `/pi:start` —— Pi 模式：团队或协同；Claude 出计划，Pi 实现，Claude 审核并提交
 - `/pi:review` —— Pi 只读审查代码，Claude 按结论修复，再审直到通过
 - `/pi:steer` —— 给正在跑的 Pi 发一句纠偏指令，不用重启
-- `/pi:stop` —— 退出 Pi 模式：杀掉所有绑定的 Pi 进程，然后问是否解绑
+- `/pi:abort` —— 叫停正在跑的 Pi
+- `/pi:stop` —— 停掉 headless Pi，然后问是否解绑
 - `/pi:connect` —— 连接一段已有的 Pi 会话（先问工作目录，列出该目录下所有会话，你选一条）
 - `/pi-pane` —— 打开 Pi 输出面板
 - `/pi-unbind` —— 清空所有 Pi 绑定
@@ -172,7 +175,7 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc（常驻）
 
 - 插件根目录（`${CLAUDE_PLUGIN_ROOT}`）下的绑定表 `pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一组 Pi 会话文件」。一个对话可以绑多条 Pi 会话；每条 Pi 会话只属于一个对话。面板显示最近绑定的那条。
-- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-events.stderr.log`、`.pi-pid`、`.pi-bound`、`.pi-done`、`.pi-rpc.sock`，都是临时文件，可随时删；任务书可以直接手动改。`/pi:steer` 和 `/pi:stop` 通过 `.pi-rpc.sock` 让 broker 向 Pi 发 `steer` / `abort`。Pi 自己的会话记录仍在 `~/.pi/agent/sessions`，插件只读不搬。
+- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-events.stderr.log`、`.pi-pid`、`.pi-bound`、`.pi-done`、`.pi-rpc.sock`，都是临时文件，可随时删；任务书可以直接手动改。`/pi:steer` 和 `/pi:abort` 通过 `.pi-rpc.sock` 让 broker 向 Pi 发 `steer` / `abort`。Pi 自己的会话记录仍在 `~/.pi/agent/sessions`，插件只读不搬。
 
 ## 目录结构
 
@@ -183,13 +186,14 @@ Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc（常驻）
 | `commands/start.md` | `/pi:start` 的提示词 |
 | `commands/review.md` | `/pi:review` 的提示词 |
 | `commands/steer.md` | `/pi:steer` 的提示词：给运行中的 Pi 发纠偏指令 |
+| `commands/abort.md` | `/pi:abort` 的提示词 |
 | `commands/stop.md` | `/pi:stop` 的提示词 |
 | `commands/connect.md` | `/pi:connect` 的提示词：挑一条已有 Pi 会话绑上来 |
 | `hooks/hooks.json` | 指向代码入口 |
 | `hooks/register.tsx` | 注册 `/pi-pane`、`/pi-unbind`，轮询并渲染面板 |
 | `scripts/pi-dispatch.sh` | 启动 RPC broker 并等它写绑定（`start` 读协作任务书，`review` 读审核任务书） |
 | `scripts/pi-rpc.mjs` | broker：拉起 `pi --mode rpc`、转发事件、提供控制 socket |
-| `scripts/pi-ctl.sh` | 对运行中的 broker 发 `steer` / `abort`（`/pi:steer`、`/pi:stop`） |
+| `scripts/pi-ctl.sh` | 对运行中的 broker 发 `steer` / `abort`（`/pi:steer`、`/pi:abort`） |
 | `vendor/pi-delegate/` | 改编自 LarryStanley/pi-delegate 的 MIT 源码片段 |
 | `pi-bindings.json` | 绑定表（运行时生成，已被 .gitignore 忽略） |
 | `types/index.d.ts` | 插件状态声明 |
