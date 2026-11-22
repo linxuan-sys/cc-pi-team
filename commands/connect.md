@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 ## 1. 工作区
 
-如果是由 `/pi:start` 或 `/pi:review` 转入，工作区用调用方已经确定的 `<工作区>`，不要读当前命令的 `$ARGUMENTS`。
+如果是由 `/pi:start` 或 `/pi:review` 转入，工作区用调用方已经确定的 `<工作区>`。
 
 否则：`$ARGUMENTS` 有 → 直接用（`~` 先展开，必须是绝对路径）。
 没有 → 用 `AskUserQuestion` 问「要连接哪个工作区？」：
