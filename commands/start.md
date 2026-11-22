@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 当用户提到 Pi（“让 Pi 做…”“Pi 帮我…”）或输入 `/pi:start` 时，先读这份说明，再确认模式。**不要自动派单。**
 
+**以用户的语言为主**：用户用中文就用中文，用户用英文就用英文；不要默认中文。
+
 ## 这是什么
 
 `cc-pi-team` 是一个 Claude Code 插件，让 Claude 和本机的 Pi 一起干活。Claude 负责计划、拆任务、审核和提交；Pi 负责实际写代码。
