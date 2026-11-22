@@ -17,6 +17,7 @@ disable-model-invocation: true
 **原理**：
 
 - Pi 是一个独立的编码 agent 进程，有自己的会话、上下文和模型配置，**不是 Claude 的子智能体**。
+- **靠 Pi 的 `--mode rpc`**：Pi 原生支持无头 RPC（stdin/stdout 上的 JSON 命令与事件）；插件用它发任务书、收正文和工具调用、中途 steer/abort，不模拟终端、不截屏。
 - Claude 用无头方式把任务书发给 Pi；Pi 执行时产生的正文、工具调用和结果会实时落进会话文件。
 - 插件把这个 Pi 会话绑定到当前 Claude 对话：右侧面板实时显示 Pi 的输出，Claude 也能读到同一份记录。
 - 用户随时可以插话纠偏或叫停，不用重启 Pi。
