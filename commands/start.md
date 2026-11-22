@@ -21,7 +21,7 @@ disable-model-invocation: true
 
 - Pi 的子代理自己派，Claude 不指挥。
 - Pi 写代码的时候 Claude 可以派只读子代理做代码审核和文件架构分析。
-- 审核必须自己看 diff 和代码，不能转述 Pi 的结论。
+- 审核必须自己看 diff 和代码，不能转述结论。
 - 一个对话只用一个 Pi 会话；同一工作区不并跑。
 
 ## 0. 工作区
@@ -142,6 +142,7 @@ while [ "$(cat /proc/$(cat .pi-pid)/comm 2>/dev/null)" = "pi" ]; do sleep 2; don
 - 每轮进行完修改后，若上面用户同意创建分支或建立Git仓库，则推送（必须）。用户不同意则不推送。
 - 小问题（拼写、格式、非核心架构问题）→ 自己改，报告注明「这部分由我修补」。
 - 通过后：用户同意建仓库/分支才提交到 `pi/team`（排除 `.pi-*`，提交信息 `fix: <简述>`，不要 `git add -A`）；没同意就跳过提交，直接汇报。
+- 收尾后，用 `AskUserQuestion` 问「是否开启审查模式？」：是 → 读 `${CLAUDE_PLUGIN_ROOT}/commands/review.md` 并照它执行（审查流程和汇报走 review.md）；否 → 进第 7 节汇报。
 
 ## 7. 汇报
 

@@ -64,8 +64,10 @@ fi
 
 ## 3. 完成
 
-**看到 `BOUND` 才算完成**；`OCCUPIED` 说明这条会话已被另一个对话占用，先在那边解绑再回来；`NOT_FOUND` / `BIND_FAILED` 也贴出来并停。然后回三行：
+**看到 `BOUND` 才算完成**；`OCCUPIED` 说明这条会话已被另一个对话占用，先在那边解绑再回来；`NOT_FOUND` / `BIND_FAILED` 也贴出来并停。然后问一次（`AskUserQuestion`）「是否开启审查模式？」：
 
-- 已连接
-- `/pi-pane` 看这条会话的历史
-- `/pi:start` 或 `/pi:review` 直接用它
+- **是** → 读 `${CLAUDE_PLUGIN_ROOT}/commands/review.md` 并照它执行（审查流程和汇报走 review.md）。
+- **否** → 回三行：
+  - 已连接
+  - `/pi-pane` 看这条会话的历史
+  - `/pi:start` 或 `/pi:review` 直接用它
