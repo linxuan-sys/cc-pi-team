@@ -18,8 +18,10 @@ Pi 是另一个独立的编码 agent（本机 `pi` CLI）。这个模式把“�
 
 ## 启用示例
 
+Claude 实际派单用的命令：
+
 ```bash
-/pi:start 帮我实现登录页
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "<工作区>" "new" "start"
 ```
 
 ## 常用命令
