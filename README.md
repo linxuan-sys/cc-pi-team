@@ -65,7 +65,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 - The bindings file `pi-bindings.json` in the plugin root (`${CLAUDE_PLUGIN_ROOT}`) maps one Claude Code session id
   to one Pi session file. One conversation binds exactly one Pi session.
-- Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl`, `.pi-pid` and `.pi-review-base` are
+- Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl` and `.pi-pid` are
   created in the working directory of each dispatch, so you can read and edit the task book by hand. They are safe to delete.
   Pi's own session records stay in Pi's session store (`~/.pi/agent/sessions`), which the plugin only reads.
 
@@ -163,7 +163,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 - 插件根目录（`${CLAUDE_PLUGIN_ROOT}`）下的绑定表 `pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一个 Pi 会话文件」。一个对话只绑一条 Pi 会话。
-- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-pid`、`.pi-review-base`，都是临时文件，可随时删；任务书可以直接手动改。Pi 自己的会话记录仍在 `~/.pi/agent/sessions`，插件只读不搬。
+- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-pid`，都是临时文件，可随时删；任务书可以直接手动改。Pi 自己的会话记录仍在 `~/.pi/agent/sessions`，插件只读不搬。
 
 ## 目录结构
 
