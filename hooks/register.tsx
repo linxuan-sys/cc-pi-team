@@ -159,6 +159,7 @@ export const register: Register = on => {
 
   on('pi.open', async $ => {
     await openPane($)
+    await $.ui.scroll({ in: PANE, to: 'end' }).catch(() => undefined)
     return { value: undefined }
   })
 
@@ -175,6 +176,7 @@ export const register: Register = on => {
 
   on('command.run', { command: 'pi-pane' }, async $ => {
     const { isPlaced } = await openPane($)
+    if (isPlaced) await $.ui.scroll({ in: PANE, to: 'end' }).catch(() => undefined)
     return { text: isPlaced ? 'Pi 输出面板已打开' : '这个界面不支持侧栏面板' }
   })
 
