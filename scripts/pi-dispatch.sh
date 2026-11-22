@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pi-dispatch.sh <workspace> <new|bind> <start|review>
 # start 读 .pi-start-task.txt，review 读 .pi-review-task.txt。
-# 成功只输出 BOUND=<session file>；NOT_BOUND / NO_SESSION / BIND_FAILED / BAD_TASK_MODE 表示失败。
+# 成功只输出 BOUND=<session file>；NOT_BOUND / NO_SESSION / BAD_TASK_MODE 表示失败。
 
 WS="$1"
 MODE="$2"
@@ -12,27 +12,38 @@ case "$TASK_MODE" in
   *) echo BAD_TASK_MODE; exit 1 ;;
 esac
 cd "$WS" || exit 1
-TASK="$(cat "$TASK_FILE")"
-die() { [ -f .pi-pid ] && kill "$(cat .pi-pid)" 2>/dev/null; echo "$1"; exit 1; }
+WS="$(pwd)"
+[ -f "$TASK_FILE" ] || { echo BAD_TASK_MODE; exit 1; }
+ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# 同一工作区不并跑
+OLD=$(cat .pi-pid 2>/dev/null)
+if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null; then
+  echo ALREADY_RUNNING
+  exit 1
+fi
+
 if [ "$MODE" = "bind" ]; then
-  FILE=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null)
+  FILE=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "$ROOT/pi-bindings.json" 2>/dev/null)
+  [ -n "$FILE" ] && [ -f "$FILE" ] || { echo NOT_BOUND; exit 1; }
   ID=$(head -1 "$FILE" | jq -r '.id // empty')
   [ -n "$ID" ] || { echo NOT_BOUND; exit 1; }
-  nohup pi -p --approve --mode json --session-id "$ID" "$TASK" > .pi-events.jsonl 2>&1 < /dev/null &
-  echo $! > .pi-pid
-  echo "BOUND=$FILE"
-  exit 0
+else
+  ID=""
 fi
-nohup pi -p --approve --mode json "$TASK" > .pi-events.jsonl 2>&1 < /dev/null &
+
+# 旧哨兵、socket 残留会让新 broker 绑不上
+rm -f .pi-bound .pi-done .pi-events.jsonl .pi-events.stderr.log .pi-rpc.sock
+
+nohup node "$ROOT/scripts/pi-rpc.mjs" "$WS" "$ID" "$TASK_FILE" "$CLAUDE_CODE_SESSION_ID" > .pi-broker.log 2>&1 < /dev/null &
 echo $! > .pi-pid
+
 for i in $(seq 1 60); do
-  ID=$(grep -m1 '"type":"session"' .pi-events.jsonl 2>/dev/null | jq -r '.id // empty')
-  [ -n "$ID" ] && break
-  sleep 1
+  [ -s .pi-bound ] && break
+  kill -0 "$(cat .pi-pid)" 2>/dev/null || break
+  sleep 0.5
 done
-[ -n "$ID" ] || die NO_SESSION
-FILE=$(ls -t ~/.pi/agent/sessions/*/*_${ID}.jsonl 2>/dev/null | head -1)
-[ -n "$FILE" ] || die NO_SESSION
-[ -f "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" ] || printf '{}' > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"
-jq --arg sid "$CLAUDE_CODE_SESSION_ID" --arg p "$FILE" '.[$sid] = $p' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" || die BIND_FAILED
+
+FILE=$(cat .pi-bound 2>/dev/null)
+[ -n "$FILE" ] || { kill "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; cat .pi-broker.log 2>/dev/null; echo NO_SESSION; exit 1; }
 echo "BOUND=$FILE"

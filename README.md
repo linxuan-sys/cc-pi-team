@@ -8,6 +8,8 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 
 - `/pi:start` — Pi mode: team or collaboration; Claude plans, Pi implements, Claude reviews and commits
 - `/pi:review` — Pi reviews code read-only, Claude fixes, re-review until it passes
+- `/pi:steer` — send a course correction to the running Pi (no restart)
+- `/pi:abort` — abort the running Pi
 - `/pi:stop` — stop the headless Pi, then ask whether to unbind
 - `/pi:connect` — connect this conversation to an existing Pi session (asks for the working directory, lists sessions, you pick one)
 - `/pi-pane` — open the Pi output pane
@@ -15,11 +17,12 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 
 ## Requirements
 
-- [Pi](https://github.com/badlogic/pi-mono) (`pi` on `PATH`) — dispatched headless (`pi -p --mode json`)
+- [Pi](https://github.com/badlogic/pi-mono) (`pi` on `PATH`) — driven over RPC (`pi --mode rpc`)
+- Node.js ≥ 22 — runs the RPC broker
 - `jq` — reads and edits the bindings file and Pi session headers
 - `tac` (GNU coreutils) — reads the last user message for the `/pi:connect` list
 
-No ACP adapter and no `acpx`: the plugin drives Pi's own headless mode and reads its session file.
+No ACP adapter and no `acpx`: the plugin drives Pi's own RPC mode and reads its session file.
 
 ## Install
 
@@ -54,19 +57,20 @@ claude plugin install cc-band-pro@cc-skin-pro   # optional: the powerline bar wi
 ## How it works
 
 ```
-Claude ──(pi -p --mode json --session-id …)──> Pi
-                                                │
-                                                └── writes ~/.pi/agent/sessions/<cwd>/<id>.jsonl
-                                                                  │
-                                                      this plugin polls it every second
-                                                                  │
-                                                                  └── renders the pane
+Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc (long-lived)
+                                              │
+                    ┌─────────────────────────┼─────────────────────────┐
+                    │                         │                         │
+        events → .pi-events.jsonl    get_state → binding       session → ~/.pi/agent/sessions/<cwd>/<id>.jsonl
+        (Claude reads)                (pi-bindings.json)        (the pane polls it every second)
 ```
 
 - The bindings file `pi-bindings.json` in the plugin root (`${CLAUDE_PLUGIN_ROOT}`) maps one Claude Code session id
   to one Pi session file. One conversation binds exactly one Pi session.
-- Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl` and `.pi-pid` are
-  created in the working directory of each dispatch, so you can read and edit the task book by hand. They are safe to delete.
+- Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl`, `.pi-events.stderr.log`,
+  `.pi-pid`, `.pi-bound`, `.pi-done` and `.pi-rpc.sock` are created in the working directory of each dispatch,
+  so you can read and edit the task book by hand. They are safe to delete. `/pi:steer` and `/pi:abort` talk to
+  the running broker over `.pi-rpc.sock`; the broker maps them to Pi's `steer` / `abort` RPC commands.
   Pi's own session records stay in Pi's session store (`~/.pi/agent/sessions`), which the plugin only reads.
 
 ## Layout
@@ -77,11 +81,16 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 | `.claude-plugin/marketplace.json` | Lets the folder act as its own marketplace |
 | `commands/start.md` | `/pi:start` prompt |
 | `commands/review.md` | `/pi:review` prompt |
+| `commands/steer.md` | `/pi:steer` prompt: send a live course correction |
+| `commands/abort.md` | `/pi:abort` prompt |
 | `commands/stop.md` | `/pi:stop` prompt |
 | `commands/connect.md` | `/pi:connect` prompt: pick an existing Pi session to bind |
 | `hooks/hooks.json` | Points the engine at the code entry |
 | `hooks/register.tsx` | Registers `/pi-pane` and `/pi-unbind`, polls and renders the pane |
-| `scripts/pi-dispatch.sh` | Launches Pi, waits for its session file and writes the binding (`start` reads `.pi-start-task.txt`, `review` reads `.pi-review-task.txt`) |
+| `scripts/pi-dispatch.sh` | Starts the RPC broker, waits for its binding (`start` reads `.pi-start-task.txt`, `review` reads `.pi-review-task.txt`) |
+| `scripts/pi-rpc.mjs` | Broker: spawns `pi --mode rpc`, forwards events, serves the control socket |
+| `scripts/pi-ctl.sh` | `steer` / `abort` against the running broker (`/pi:steer`, `/pi:abort`) |
+| `vendor/pi-delegate/` | MIT-licensed RPC/JSONL skeleton adapted from LarryStanley/pi-delegate |
 | `pi-bindings.json` | Binding table (created at runtime, git-ignored) |
 | `types/index.d.ts` | Plugin state declaration |
 | `tsconfig.json` | Editor/type-checking configuration only. It extends `.claude-plugin/types`, which the engine generates on each machine and which is not committed — a fresh clone cannot run `tsc` until the engine has written it |
@@ -108,6 +117,8 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 - `/pi:start` —— Pi 模式：团队或协同；Claude 出计划，Pi 实现，Claude 审核并提交
 - `/pi:review` —— Pi 只读审查代码，Claude 按结论修复，再审直到通过
+- `/pi:steer` —— 给正在跑的 Pi 发一句纠偏指令，不用重启
+- `/pi:abort` —— 叫停正在跑的 Pi
 - `/pi:stop` —— 停掉 headless Pi，然后问是否解绑
 - `/pi:connect` —— 连接一段已有的 Pi 会话（先问工作目录，列出该目录下所有会话，你选一条）
 - `/pi-pane` —— 打开 Pi 输出面板
@@ -115,11 +126,12 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 ## 依赖
 
-- [Pi](https://github.com/badlogic/pi-mono)（`pi` 在 `PATH` 里）—— 用无头模式派单（`pi -p --mode json`）
+- [Pi](https://github.com/badlogic/pi-mono)（`pi` 在 `PATH` 里）—— 用 RPC 长连接驱动（`pi --mode rpc`）
+- Node.js 22 及以上 —— 运行 RPC broker
 - `jq` —— 读写绑定表和 Pi 会话头
 - `tac`（GNU coreutils）—— 读取最后一条用户消息，用于 `/pi:connect` 列表
 
-不需要 ACP 适配器，也不需要 `acpx`：插件直接驱动 Pi 的无头模式，再读它的会话文件。
+不需要 ACP 适配器，也不需要 `acpx`：插件直接驱动 Pi 的 RPC 模式，再读它的会话文件。
 
 ## 安装
 
@@ -152,18 +164,17 @@ claude plugin install cc-band-pro@cc-skin-pro   # 可选：带 Pi 块的 powerli
 ## 工作原理
 
 ```
-Claude ──(pi -p --mode json --session-id …)──> Pi
-                                                │
-                                                └── 写 ~/.pi/agent/sessions/<工作区>/<id>.jsonl
-                                                                  │
-                                                      插件每秒读一次这个文件
-                                                                  │
-                                                                  └── 渲染到侧边栏
+Claude ──(pi-dispatch.sh → pi-rpc.mjs)──> pi --mode rpc（常驻）
+                                              │
+                    ┌─────────────────────────┼─────────────────────────┐
+                    │                         │                         │
+        事件 → .pi-events.jsonl    get_state → 绑定表           会话 → ~/.pi/agent/sessions/<工作区>/<id>.jsonl
+        （Claude 读取）            （pi-bindings.json）          （面板每秒读一次）
 ```
 
 - 插件根目录（`${CLAUDE_PLUGIN_ROOT}`）下的绑定表 `pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一个 Pi 会话文件」。一个对话只绑一条 Pi 会话。
-- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-pid`，都是临时文件，可随时删；任务书可以直接手动改。Pi 自己的会话记录仍在 `~/.pi/agent/sessions`，插件只读不搬。
+- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-events.stderr.log`、`.pi-pid`、`.pi-bound`、`.pi-done`、`.pi-rpc.sock`，都是临时文件，可随时删；任务书可以直接手动改。`/pi:steer` 和 `/pi:abort` 通过 `.pi-rpc.sock` 让 broker 向 Pi 发 `steer` / `abort`。Pi 自己的会话记录仍在 `~/.pi/agent/sessions`，插件只读不搬。
 
 ## 目录结构
 
@@ -173,11 +184,16 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 | `.claude-plugin/marketplace.json` | 让这个目录本身能当市场被安装 |
 | `commands/start.md` | `/pi:start` 的提示词 |
 | `commands/review.md` | `/pi:review` 的提示词 |
+| `commands/steer.md` | `/pi:steer` 的提示词：给运行中的 Pi 发纠偏指令 |
+| `commands/abort.md` | `/pi:abort` 的提示词 |
 | `commands/stop.md` | `/pi:stop` 的提示词 |
 | `commands/connect.md` | `/pi:connect` 的提示词：挑一条已有 Pi 会话绑上来 |
 | `hooks/hooks.json` | 指向代码入口 |
 | `hooks/register.tsx` | 注册 `/pi-pane`、`/pi-unbind`，轮询并渲染面板 |
-| `scripts/pi-dispatch.sh` | 启动 Pi、等会话文件、写绑定（`start` 读协作任务书，`review` 读审核任务书） |
+| `scripts/pi-dispatch.sh` | 启动 RPC broker 并等它写绑定（`start` 读协作任务书，`review` 读审核任务书） |
+| `scripts/pi-rpc.mjs` | broker：拉起 `pi --mode rpc`、转发事件、提供控制 socket |
+| `scripts/pi-ctl.sh` | 对运行中的 broker 发 `steer` / `abort`（`/pi:steer`、`/pi:abort`） |
+| `vendor/pi-delegate/` | 改编自 LarryStanley/pi-delegate 的 MIT 源码片段 |
 | `pi-bindings.json` | 绑定表（运行时生成，已被 .gitignore 忽略） |
 | `types/index.d.ts` | 插件状态声明 |
 | `tsconfig.json` | 只给编辑器和类型检查用，运行时不参与。它 extends 的 `.claude-plugin/types` 由引擎在本机生成、不随仓库分发，新克隆要先让引擎生成才能跑 `tsc` |

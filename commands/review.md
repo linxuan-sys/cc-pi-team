@@ -90,7 +90,7 @@ jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "${CLAUDE_PLUGIN_ROOT}/pi-
 
 陌生仓库先用 `AskUserQuestion` 确认「允许加载本地扩展吗？」（继续 / 取消），取消就停。
 
-运行这条命令：**看到 `BOUND=` 才算成功**；`BAD_TASK_MODE` / `NOT_BOUND` / `NO_SESSION` / `BIND_FAILED` 就贴出来并停。
+运行这条命令：新建会话时由 Pi 生成 ID，broker 用 `get_state` 拿到会话文件；用旧会话时直接拿绑定里的 ID 恢复。broker 以 `pi --mode rpc` 常驻，拿到会话文件后写绑定并输出 `BOUND=`。**看到 `BOUND=` 才算成功**；`BAD_TASK_MODE` / `NOT_BOUND` / `NO_SESSION` 就贴出来并停。
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "$PWD" "<new|bind>" "review"
@@ -98,15 +98,17 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "$PWD" "<new|bind>" "review"
 
 ## 4. 等 Pi 结束
 
+Pi 跑着的时候要纠偏用 `/pi:steer <指令>`，要停用 `/pi:abort`；不要重复派单。
+
 用 Bash 的 `run_in_background` 跑这一条，收到退出通知再进第 5 步：
 
 ```bash
-while [ "$(cat /proc/$(cat .pi-pid)/comm 2>/dev/null)" = "pi" ]; do sleep 2; done; echo PI_DONE
+while [ ! -f .pi-done ] && kill -0 "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; do sleep 2; done; echo PI_DONE
 ```
 
 ## 5. 复核
 
-1. 读 `.pi-events.jsonl`：`message_end` 里 assistant 的 text = 报告；`tool_execution_end.result.structuredContent` = 命令输出与退出码。如果最后一条 assistant 的 `stopReason` 是 `error`，把 `errorMessage` 原样贴给用户并停。
+1. 读 `.pi-events.jsonl`：`message_end` 里 assistant 的 text = 报告；`tool_execution_end.result.structuredContent` = 命令输出与退出码。末尾的 `delegate_done` 是收尾标记：`status` 为 `completed` / `aborted` / `failed`，`error` 非空就是 Pi 报的错。如果最后一条 assistant 的 `stopReason` 是 `error`，把 `errorMessage` 原样贴给用户并停。
 2. 逐条打开 `文件:行` 复核：属实保留，报错标「已复核：误报」。
 3. 「Pi 报的」和「我复核过的」分开写。
 4. 修改前必须再三确认：这个 bug 是否真的会触发、是否真的有必要改；不要完全照 Pi 的清单改。

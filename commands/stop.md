@@ -15,15 +15,19 @@ FILE=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PL
 ID=$(head -1 "$FILE" | jq -r '.id // empty')
 [ -n "$ID" ] || { echo NO_ID; exit 0; }
 CWD=$(head -1 "$FILE" | jq -r '.cwd // empty')
-is_pi() { [ -n "$1" ] && [ "$(cat /proc/$1/comm 2>/dev/null)" = "pi" ]; }
-PID=$(cat "$CWD/.pi-pid" 2>/dev/null)
-if is_pi "$PID"; then
-  kill "$PID"
-else
-  pkill -f "^pi -p .*--session-id[= ]${ID}"
+[ -n "$CWD" ] || CWD="$(dirname "$FILE")"
+if [ -S "$CWD/.pi-rpc.sock" ]; then
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-ctl.sh" "$CWD" abort >/dev/null 2>&1 || true
+  sleep 3
 fi
+PID=$(cat "$CWD/.pi-pid" 2>/dev/null)
+if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null && tr '\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null | grep -q 'pi-rpc.mjs'; then
+  kill "$PID" 2>/dev/null
+  sleep 1
+fi
+pkill -f "pi-rpc.mjs $CWD" 2>/dev/null || true
 sleep 1
-if is_pi "$PID"; then echo "STILL_RUNNING=$ID"; else echo "STOPPED=$ID"; fi
+if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then echo "STILL_RUNNING=$ID"; else echo "STOPPED=$ID"; fi
 echo "REOPEN=cd $CWD && pi --session $ID"
 ```
 

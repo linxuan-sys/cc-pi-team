@@ -111,7 +111,7 @@ jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "${CLAUDE_PLUGIN_ROOT}/pi-
 
 陌生仓库先用 `AskUserQuestion` 确认「允许加载本地扩展吗？」（继续 / 取消），取消就停。
 
-运行这条命令：新建时先启动 Pi，从 Pi 的会话事件里拿 ID，再写绑定；用旧会话时直接拿旧 ID 启动，绑定表本来就有，不用重写。**看到 `BOUND=` 才算成功**；`BAD_TASK_MODE` / `NOT_BOUND` / `NO_SESSION` / `BIND_FAILED` 就贴出来并停。
+运行这条命令：新建会话时由 Pi 生成 ID，broker 用 `get_state` 拿到会话文件；用旧会话时直接拿绑定里的 ID 恢复。broker 以 `pi --mode rpc` 常驻，拿到会话文件后写绑定并输出 `BOUND=`。**看到 `BOUND=` 才算成功**；`BAD_TASK_MODE` / `NOT_BOUND` / `NO_SESSION` 就贴出来并停。
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "<工作区>" "<new|bind>" "start"
@@ -119,17 +119,19 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "<工作区>" "<new|bind>" "
 
 ## 4. 等 Pi 结束
 
+Pi 跑着的时候要纠偏用 `/pi:steer <指令>`，要停用 `/pi:abort`；不要重复派单。
+
 用 Bash 的 `run_in_background` 跑这一条，收到退出通知再进第 5 步：
 
 ```bash
-while [ "$(cat /proc/$(cat .pi-pid)/comm 2>/dev/null)" = "pi" ]; do sleep 2; done; echo PI_DONE
+while [ ! -f .pi-done ] && kill -0 "$(cat .pi-pid 2>/dev/null)" 2>/dev/null; do sleep 2; done; echo PI_DONE
 ```
 
 协同模式：派单后你先写自己负责的文件；Pi 在后台跑，收到 `PI_DONE` 再复核 Pi 的文件和冲突。
 
 ## 5. 审核
 
-1. 读工作区的 `.pi-events.jsonl`：`message_end` 里 assistant 的 text = 汇报；`tool_execution_end.result.structuredContent` = 命令输出与退出码。如果最后一条 assistant 的 `stopReason` 是 `error`，把 `errorMessage` 原样贴给用户并停，不要继续审核。
+1. 读工作区的 `.pi-events.jsonl`：`message_end` 里 assistant 的 text = 汇报；`tool_execution_end.result.structuredContent` = 命令输出与退出码。末尾的 `delegate_done` 是收尾标记：`status` 为 `completed` / `aborted` / `failed`，`error` 非空就是 Pi 报的错。如果最后一条 assistant 的 `stopReason` 是 `error`，把 `errorMessage` 原样贴给用户并停，不要继续审核。
 2. 走了 git：跑 `git status --short -- . ':(exclude).pi-*'`、`git diff --stat`、`git diff`；有 `wip: before pi task` 就对照它，没有就只看 Pi 汇报的文件。没走 git：按 Pi 的汇报逐个读改动文件，跑项目测试。
 3. Read 关键文件确认逻辑真的实现（不是注释、占位、假数据）。
 4. 查：功能是否实现、是否删了原逻辑或吞异常、是否有计划外改动、声称的测试是否真跑过。
