@@ -11,11 +11,24 @@ disable-model-invocation: true
 ```bash
 FILES=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty | if type=="array" then .[] else . end' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null)
 [ -n "$FILES" ] || { echo NOT_BOUND; exit 0; }
+# 派单跑在当前工作区，先停这里
+if [ -S "$PWD/.pi-rpc.sock" ]; then
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-ctl.sh" "$PWD" abort >/dev/null 2>&1 || true
+  sleep 3
+  PID=$(cat "$PWD/.pi-pid" 2>/dev/null)
+  if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null && tr '\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null | grep -q 'pi-rpc.mjs'; then
+    kill "$PID" 2>/dev/null
+    sleep 1
+  fi
+  pkill -f "pi-rpc.mjs $PWD" 2>/dev/null || true
+  echo "STOPPED=$PWD"
+fi
 echo "$FILES" | while IFS= read -r FILE; do
   [ -f "$FILE" ] || { echo "STALE=$FILE"; continue; }
   ID=$(head -1 "$FILE" | jq -r '.id // empty')
   CWD=$(head -1 "$FILE" | jq -r '.cwd // empty')
   [ -n "$CWD" ] || CWD="$(dirname "$FILE")"
+  [ "$CWD" = "$PWD" ] && continue
   if [ -S "$CWD/.pi-rpc.sock" ]; then
     bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-ctl.sh" "$CWD" abort >/dev/null 2>&1 || true
     sleep 3

@@ -12,11 +12,14 @@ disable-model-invocation: true
 LIST=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty | if type=="array" then .[] else . end' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null)
 [ -n "$LIST" ] || { echo NOT_BOUND; exit 0; }
 WS=""
-while IFS= read -r FILE; do
-  [ -f "$FILE" ] || continue
-  CWD=$(head -1 "$FILE" | jq -r '.cwd // empty')
-  [ -S "$CWD/.pi-rpc.sock" ] && WS="$CWD"
-done <<< "$LIST"
+[ -S "$PWD/.pi-rpc.sock" ] && WS="$PWD"
+if [ -z "$WS" ]; then
+  while IFS= read -r FILE; do
+    [ -f "$FILE" ] || continue
+    CWD=$(head -1 "$FILE" | jq -r '.cwd // empty')
+    [ -S "$CWD/.pi-rpc.sock" ] && WS="$CWD"
+  done <<< "$LIST"
+fi
 [ -n "$WS" ] && echo "RUNNING=$WS" || echo "NOT_RUNNING"
 ```
 
