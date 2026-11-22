@@ -6,7 +6,7 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 
 ## What it does
 
-- `/pi:start` — team mode: Claude plans, Pi implements, Claude reviews and commits
+- `/pi:start` — Pi mode: team or collaboration; Claude plans, Pi implements, Claude reviews and commits
 - `/pi:review` — Pi reviews code read-only, Claude fixes, re-review until it passes
 - `/pi:stop` — stop the headless Pi, then ask whether to unbind
 - `/pi:connect` — connect this conversation to an existing Pi session (asks for the working directory, lists sessions, you pick one)
@@ -106,7 +106,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 ## 命令
 
-- `/pi:start` —— 团队模式：Claude 出计划，Pi 实现，Claude 审核并提交
+- `/pi:start` —— Pi 模式：团队或协同；Claude 出计划，Pi 实现，Claude 审核并提交
 - `/pi:review` —— Pi 只读审查代码，Claude 按结论修复，再审直到通过
 - `/pi:stop` —— 停掉 headless Pi，然后问是否解绑
 - `/pi:connect` —— 连接一段已有的 Pi 会话（先问工作目录，列出该目录下所有会话，你选一条）
