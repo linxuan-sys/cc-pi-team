@@ -37,6 +37,8 @@ const binds = atom({ plugin: 'pi', key: 'binds' } as const, { files: [] as strin
 
 let shownPath = ''
 let selected = -1
+let savedOffset = -1
+let restoring = false
 let lastSize = 0
 let running = false
 let noSkins = false
@@ -53,7 +55,18 @@ async function clear($: any) {
   await update($, lines, () => [])
 }
 
-const openPane = ($: any) => $.ui.open({ id: PANE, title: 'Pi Output' })
+async function openPane($: any) {
+  const r = await $.ui.open({ id: PANE, title: 'Pi Output' })
+  if (r.isPlaced) {
+    if (savedOffset < 0) {
+      await $.ui.scroll({ in: PANE, to: 'end' }).catch(() => undefined)
+    } else {
+      restoring = true
+      await $.ui.scroll({ in: PANE, to: 'start' }).catch(() => undefined)
+    }
+  }
+  return r
+}
 
 function parse(raw: string, base: number): Entry[] {
   const out: Entry[] = []
@@ -168,7 +181,6 @@ export const register: Register = on => {
 
   on('pi.open', async $ => {
     await openPane($)
-    await $.ui.scroll({ in: PANE, to: 'end' }).catch(() => undefined)
     return { value: undefined }
   })
 
@@ -185,7 +197,6 @@ export const register: Register = on => {
 
   on('command.run', { command: 'pi-pane' }, async $ => {
     const { isPlaced } = await openPane($)
-    if (isPlaced) await $.ui.scroll({ in: PANE, to: 'end' }).catch(() => undefined)
     return { text: isPlaced ? 'Pi 输出面板已打开' : '这个界面不支持侧栏面板' }
   })
 
@@ -197,6 +208,18 @@ export const register: Register = on => {
     await update($, binds, () => ({ files: [], idx: -1 }))
     await clear($)
     return { text: '绑定表已清空' }
+  })
+
+  on('ui.scroll', { requestId: PANE }, ($, e, next) => {
+    if (e.origin.kind === 'person') {
+      savedOffset = e.offset
+      return next(e)
+    }
+    if (restoring) {
+      restoring = false
+      return next({ ...e, offset: savedOffset })
+    }
+    return next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => drawPane($, e))
