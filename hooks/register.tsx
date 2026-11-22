@@ -208,6 +208,12 @@ async function drawPane($: any, e: any) {
         <Text dimColor>  Pi reviews, Claude fixes</Text>
         <Text color="#7ea898">/pi:connect</Text>
         <Text dimColor>  bind an existing Pi session</Text>
+        <Text color="#7ea898">/pi:stop</Text>
+        <Text dimColor>  stop Pi, optionally unbind</Text>
+        <Text color="#7ea898">/pi-pane</Text>
+        <Text dimColor>  open this output pane</Text>
+        <Text color="#7ea898">/pi-unbind</Text>
+        <Text dimColor>  clear all Pi bindings</Text>
       </Box>
     )
   const list = raw.map(s => {
