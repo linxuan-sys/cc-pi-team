@@ -8,15 +8,16 @@ A Claude Code plugin that lets Claude lead and Pi write the code, with Pi's live
 
 - `/pi:start` — team mode: Claude plans, Pi implements, Claude reviews and commits
 - `/pi:review` — Pi reviews code read-only, Claude fixes, re-review until it passes
-- `/pi:stop` — leave team mode, unbind the conversation
+- `/pi:stop` — stop the headless Pi, then ask whether to unbind
 - `/pi:connect` — connect this conversation to an existing Pi session (asks for the working directory, lists sessions, you pick one)
 - `/pi-pane` — open the Pi output pane
-- `/pi-unbind` — unbind this conversation from its Pi session
+- `/pi-unbind` — clear all Pi bindings
 
 ## Requirements
 
 - [Pi](https://github.com/badlogic/pi-mono) (`pi` on `PATH`) — dispatched headless (`pi -p --mode json`)
 - `jq` — reads and edits the bindings file and Pi session headers
+- `tac` (GNU coreutils) — reads the last user message for the `/pi:connect` list
 
 No ACP adapter and no `acpx`: the plugin drives Pi's own headless mode and reads its session file.
 
@@ -64,8 +65,9 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 - The bindings file `pi-bindings.json` in the plugin root (`${CLAUDE_PLUGIN_ROOT}`) maps one Claude Code session id
   to one Pi session file. One conversation binds exactly one Pi session.
-- Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl`, `.pi-session-id` and `.pi-review-base` are
-  created in the working directory of each dispatch and are safe to delete.
+- Runtime files `.pi-start-task.txt`, `.pi-review-task.txt`, `.pi-events.jsonl`, `.pi-pid` and `.pi-review-base` are
+  created in the working directory of each dispatch, so you can read and edit the task book by hand. They are safe to delete.
+  Pi's own session records stay in Pi's session store (`~/.pi/agent/sessions`), which the plugin only reads.
 
 ## Layout
 
@@ -79,6 +81,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 | `commands/connect.md` | `/pi:connect` prompt: pick an existing Pi session to bind |
 | `hooks/hooks.json` | Points the engine at the code entry |
 | `hooks/register.tsx` | Registers `/pi-pane` and `/pi-unbind`, polls and renders the pane |
+| `scripts/pi-dispatch.sh` | Launches Pi, waits for its session file and writes the binding (`start` reads `.pi-start-task.txt`, `review` reads `.pi-review-task.txt`) |
 | `pi-bindings.json` | Binding table (created at runtime, git-ignored) |
 | `types/index.d.ts` | Plugin state declaration |
 | `tsconfig.json` | Editor/type-checking configuration only. It extends `.claude-plugin/types`, which the engine generates on each machine and which is not committed — a fresh clone cannot run `tsc` until the engine has written it |
@@ -87,12 +90,12 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 - The pane shows the task Claude sent, Pi's assistant text, and Pi's tool call
   titles (not tool output, not thinking).
-- Only one Pi session per conversation, and one workspace at a time.
-- The pane keeps entries in memory; the only file written is the bindings file
-  (`/pi:start`, `/pi:review`, `/pi:connect`, `/pi:stop` and `/pi-unbind` all change it).
-- A single message over 3 MiB (a base64 screenshot, say) is skipped in byte space and shown as one placeholder line; the rest keeps flowing. A text block over 200k characters is truncated with an ellipsis.
-- `/pi-unbind` takes no file lock: operate on one conversation at a time.
-- One process with several conversations: the pane follows the last bound session.
+- One workspace at a time.
+- The pane keeps entries in memory; the only file written in the plugin folder is the bindings file.
+  Each dispatch also writes its `.pi-*` runtime files in the target workspace, for you to inspect and edit.
+- A single message over 3 MiB (a base64 screenshot, say) is skipped and the rest keeps flowing. A text block over 200k characters is truncated with an ellipsis.
+- `/pi-unbind` clears every binding and takes no file lock: don't run it concurrently with `/pi:start` or `/pi:stop`.
+- One process with several conversations: the pane follows the current conversation's binding.
 - Tables are drawn by the skins plugin; without it the pane falls back to plain markdown.
 
 ---
@@ -105,15 +108,16 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 - `/pi:start` —— 团队模式：Claude 出计划，Pi 实现，Claude 审核并提交
 - `/pi:review` —— Pi 只读审查代码，Claude 按结论修复，再审直到通过
-- `/pi:stop` —— 退出团队模式，解除绑定
+- `/pi:stop` —— 停掉 headless Pi，然后问是否解绑
 - `/pi:connect` —— 连接一段已有的 Pi 会话（先问工作目录，列出该目录下所有会话，你选一条）
 - `/pi-pane` —— 打开 Pi 输出面板
-- `/pi-unbind` —— 解除当前对话与 Pi 的绑定
+- `/pi-unbind` —— 清空所有 Pi 绑定
 
 ## 依赖
 
 - [Pi](https://github.com/badlogic/pi-mono)（`pi` 在 `PATH` 里）—— 用无头模式派单（`pi -p --mode json`）
 - `jq` —— 读写绑定表和 Pi 会话头
+- `tac`（GNU coreutils）—— 读取最后一条用户消息，用于 `/pi:connect` 列表
 
 不需要 ACP 适配器，也不需要 `acpx`：插件直接驱动 Pi 的无头模式，再读它的会话文件。
 
@@ -159,7 +163,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 - 插件根目录（`${CLAUDE_PLUGIN_ROOT}`）下的绑定表 `pi-bindings.json` 把「一个 Claude Code 会话 ID」映射到
   「一个 Pi 会话文件」。一个对话只绑一条 Pi 会话。
-- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-session-id`、`.pi-review-base`，都是临时文件，可随时删。
+- 每次派单会在工作区生成 `.pi-start-task.txt`、`.pi-review-task.txt`、`.pi-events.jsonl`、`.pi-pid`、`.pi-review-base`，都是临时文件，可随时删；任务书可以直接手动改。Pi 自己的会话记录仍在 `~/.pi/agent/sessions`，插件只读不搬。
 
 ## 目录结构
 
@@ -173,6 +177,7 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 | `commands/connect.md` | `/pi:connect` 的提示词：挑一条已有 Pi 会话绑上来 |
 | `hooks/hooks.json` | 指向代码入口 |
 | `hooks/register.tsx` | 注册 `/pi-pane`、`/pi-unbind`，轮询并渲染面板 |
+| `scripts/pi-dispatch.sh` | 启动 Pi、等会话文件、写绑定（`start` 读协作任务书，`review` 读审核任务书） |
 | `pi-bindings.json` | 绑定表（运行时生成，已被 .gitignore 忽略） |
 | `types/index.d.ts` | 插件状态声明 |
 | `tsconfig.json` | 只给编辑器和类型检查用，运行时不参与。它 extends 的 `.claude-plugin/types` 由引擎在本机生成、不随仓库分发，新克隆要先让引擎生成才能跑 `tsc` |
@@ -181,9 +186,9 @@ Claude ──(pi -p --mode json --session-id …)──> Pi
 
 - 面板显示三类内容：Claude 发出的任务书、Pi 的正文、Pi 的工具调用标题
   （不显示工具输出，也不显示思考过程）。
-- 一个对话只绑一条 Pi 会话；同一时间只支持一个工作区。
-- 面板内容全部在内存里；唯一写盘的是绑定表（`/pi:start`、`/pi:review`、`/pi:connect`、`/pi:stop`、`/pi-unbind` 都会改）。
-- 单条消息超过 3 MiB（比如 base64 截图）会在字节空间里跳过，只显示一行"超大消息已跳过"，后续内容照常。正文超过 20 万字符会截断并加省略号。
-- 一个进程多个对话时，面板跟随最后一个绑定的会话。
+- 同一时间只支持一个工作区。
+- 面板内容全部在内存里；插件文件夹里只写绑定表；每次派单的 `.pi-*` 运行时文件写在目标工作区，方便查看和手动改任务书。
+- 单条消息超过 3 MiB（比如 base64 截图）会被跳过，后续内容照常。正文超过 20 万字符会截断并加省略号。
+- 一个进程多个对话时，面板跟随当前对话的绑定。
 - 表格由 skins 插件渲染；没有 skins 时退回普通 markdown。
-- `/pi-unbind` 不带文件锁，和 `/pi:start`、`/pi:stop` 并发时理论上可能互相覆盖；同一时间只操作一个对话即可避免。
+- `/pi-unbind` 会清空整张绑定表，且不带文件锁；不要和 `/pi:start`、`/pi:stop` 并发执行。

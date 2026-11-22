@@ -1,28 +1,51 @@
 ---
-description: Exit Pi team mode, unbind and resume normal work
+description: Exit Pi mode: stop the running headless Pi, optionally unbind
 argument-hint:
 disable-model-invocation: true
 ---
 
-退出 Pi 模式：停掉本对话绑定的 headless Pi → 解绑 → 汇报。
+退出 Pi 模式：停掉正在跑的 headless Pi，然后问你要不要解绑。所有提问都用 `AskUserQuestion`。
 
-## 1. 停 + 解绑
+## 1. 读绑定并停进程
 
-一条命令跑完：
+```bash
+FILE=$(jq -r --arg sid "$CLAUDE_CODE_SESSION_ID" '.[$sid] // empty' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" 2>/dev/null)
+[ -n "$FILE" ] || { echo NOT_BOUND; exit 0; }
+[ -f "$FILE" ] || { echo STALE; exit 0; }
+ID=$(head -1 "$FILE" | jq -r '.id // empty')
+[ -n "$ID" ] || { echo NO_ID; exit 0; }
+CWD=$(head -1 "$FILE" | jq -r '.cwd // empty')
+is_pi() { [ -n "$1" ] && [ "$(cat /proc/$1/comm 2>/dev/null)" = "pi" ]; }
+PID=$(cat "$CWD/.pi-pid" 2>/dev/null)
+if is_pi "$PID"; then
+  kill "$PID"
+else
+  pkill -f "^pi -p .*--session-id[= ]${ID}"
+fi
+sleep 1
+if is_pi "$PID"; then echo "STILL_RUNNING=$ID"; else echo "STOPPED=$ID"; fi
+echo "REOPEN=cd $CWD && pi --session $ID"
+```
 
-1. 从 `${CLAUDE_PLUGIN_ROOT}/pi-bindings.json` 读本对话的会话文件；文件不存在或没有这个键就回 `NOT_BOUND`，结束。
-2. 读它第一行，拿 `id` 和 `cwd`（`id` 缺失就从文件名里取）。文件不存在 → 跳过第 3 步，直接做第 4 步，回 `UNBOUND_STALE`（键照样删）。
-3. 先 `pgrep -af "^pi .*--session-id[= ]<id>"` 看命中，只杀 **headless**（`pi -p ...`）的，等它退出（最多 5 秒）：`pkill -f "^pi -p .*--session-id[= ]<id>"`。命中的是交互式 `pi --session` → 先告诉用户、别杀，只解绑。5 秒后还在跑 → 报 `STILL_RUNNING`，不要假称已停；解绑照做，是否 `kill -9` 由用户决定。
-4. 删掉本对话的键：`jq --arg sid "$CLAUDE_CODE_SESSION_ID" 'del(.[$sid])' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"`。
-5. 回 `UNBOUND` / `UNBOUND_STALE`、`PI_ID`、`WORKSPACE`（还在跑就带 `STILL_RUNNING`）。
+- 输出 `NOT_BOUND` → 回「本来就没绑定，已退出」，结束。
+- 输出 `STOPPED` / `STILL_RUNNING` / `STALE` / `NO_ID` → 继续第 2 步。
+- `STALE` 说明绑定行还在、会话文件没了：不杀进程，直接问要不要解绑。
 
-- `NOT_BOUND` → 回「当前对话本来就没绑定 Pi，跳过」。
-- `UNBOUND` → 解绑成功，面板 1 秒内清空。
-- `jq` 报错（绑定表不是合法 JSON）→ 贴给用户，停；不解绑、不动表（先备份再手工修）。
+## 2. 问是否解绑
 
-## 2. 汇报
+用 `AskUserQuestion` 问「要取消这个对话的绑定吗？」：选项「取消绑定」/「不取消，直接退出」。
 
-- 本轮做了什么（一句话）
-- 会话：`<PI_ID>`，重开用 `cd <WORKSPACE> && pi --session <PI_ID>`
-- 会话记录保留，未删除
-- 之后恢复正常模式：Claude 自己写代码，不再派单
+- **取消绑定**：
+
+```bash
+jq --arg sid "$CLAUDE_CODE_SESSION_ID" 'del(.[$sid])' "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json" > "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" && mv "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json.tmp" "${CLAUDE_PLUGIN_ROOT}/pi-bindings.json"
+```
+
+- **不取消**：什么都不做。
+
+## 3. 汇报
+
+- 已停止（或本来没在跑）
+- 绑定：已取消 / 保留
+- 手动重开：把第 1 步的 `REOPEN=...` 命令原样打印给用户（`cd <cwd> && pi --session <ID>`）
+- 之后 Claude 自己写代码，不再派单
