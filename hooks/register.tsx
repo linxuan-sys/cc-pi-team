@@ -169,7 +169,6 @@ async function poll($: any) {
 }
 
 const PI_USAGE = `【Pi 插件使用说明】
-本对话已安装 pi 插件；未启用 Pi 时它不会自动行动，只有你输入命令才生效。
 /pi:start 开启 Pi 模式并读说明书
 /pi:team 团队/协同模式：Claude 出计划、Pi 写代码、Claude 审核
 /pi:review 只读审查：Claude 修复并按结论复审，可多轮/并行/疯狂模式
@@ -180,14 +179,13 @@ const PI_USAGE = `【Pi 插件使用说明】
 /pi-pane 打开侧边输出面板
 /pi-unbind 清空所有绑定
 /pi:clear 清理当前工作区的 .pi-* 临时文件
-规则：一个工作区只能跑一个 Pi；一个 Pi 只归一个 Claude 对话；并行审各方向用 review/reviewN 运行目录。
-【启用规则】只要用户提到 Pi（例如“让 Pi 做…”“Pi 帮我…”），**先读 {{ROOT}}/commands/start.md**，再按它进入 Pi 模式；用户只说“子智能体”、或完全没提 Pi 时，不要启用、不要推断、不要自动派单。`
+规则：一个 Pi 只归一个 Claude 对话；并行审各方向用 review/reviewN 运行目录。
+【启用规则】只要用户提到 Pi（例如“让 Pi 做…”“Pi 帮我…”），**先调用 /pi:start 命令**，再按它进入 Pi 模式；用户只说“子智能体”、或完全没提 Pi 时，不要启用、不要推断、不要自动派单。`
 
 export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const r = await next(e)
-    const text = PI_USAGE.replace('{{ROOT}}', $.plugin.root)
-    return { sections: [...r.sections, { id: 'pi:usage', text, scope: 'session' as const }] }
+    return { sections: [...r.sections, { id: 'pi:usage', text: PI_USAGE, scope: 'session' as const }] }
   })
 
   on('session.start', async ($, e, next) => {
