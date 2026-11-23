@@ -169,16 +169,16 @@ async function poll($: any) {
 }
 
 const PI_USAGE = `【Pi 插件使用说明】
-/pi:start 开启 Pi 模式并读说明书
-/pi:team 团队/协同模式：Claude 出计划、Pi 写代码、Claude 审核
-/pi:review 只读审查：Claude 修复并按结论复审，可多轮/并行/疯狂模式
-/pi:steer <指令> 给正在跑的 Pi 插话纠偏，不重启
-/pi:abort 叫停正在跑的 Pi
-/pi:stop 退出 Pi 模式：杀掉所有绑定的 Pi 进程，然后问是否解绑
-/pi:connect 连接一条已有 Pi 会话
-/pi-pane 打开侧边输出面板
-/pi-unbind 清空所有绑定
-/pi:clear 清理当前工作区的 .pi-* 临时文件
+/pi:start 开启 Pi 模式并读用法；用户提到 Pi 时先调用它
+/pi:team 团队/协同模式：Claude 计划与审核、Pi 写代码；默认单写手，多成员需完整计划书
+/pi:review 只读审查：Pi 报问题，Claude 复核修复；支持单审/并行审/疯狂模式
+/pi:steer <指令> 给正在跑的 Pi 插话纠偏，不重启；消息发错或重发也走它
+/pi:abort 只叫停当前 Pi，不删绑定、不停其他会话
+/pi:stop 退出 Pi 模式：中止并杀掉所有绑定的 Pi 进程，然后问是否解绑
+/pi:connect 把当前对话接到已有 Pi 会话，只写绑定不启动；一个对话可绑多条
+/pi:clear 清理当前工作区 .pi-* 临时文件；不动绑定、会话历史和 review 存档
+/pi-pane 打开右侧输出面板，查看当前 Pi 的实时输出和历史
+/pi-unbind 清空当前对话的所有 Pi 绑定，不停止正在跑的 Pi
 规则：一个 Pi 只归一个 Claude 对话；并行审各方向用 review/reviewN 运行目录。
 【启用规则】只要用户提到 Pi（例如“让 Pi 做…”“Pi 帮我…”），**先调用 /pi:start 命令**，再按它进入 Pi 模式；用户只说“子智能体”、或完全没提 Pi 时，不要启用、不要推断、不要自动派单。`
 
