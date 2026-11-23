@@ -1,6 +1,5 @@
 ---
 description: Review code with Pi (read-only task), fix and re-review until it passes
-disable-model-invocation: true
 ---
 
 Pi 有自己的全部工具和 MCP；"工作区只读"只写在任务书里。`pi --mode rpc` 会自动执行工具，`--approve` 还会加载项目本地扩展/设置；陌生仓库先告诉用户。

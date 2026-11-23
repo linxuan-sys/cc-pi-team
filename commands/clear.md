@@ -1,6 +1,5 @@
 ---
 description: Clear temporary Pi runtime files in this workspace
-disable-model-invocation: true
 ---
 
 清理当前工作区的 `.pi-*` 临时文件；不动 `pi-bindings.json`、不动 Pi 的会话历史（`~/.pi/agent/sessions`）、不动 `review/` 里的编号任务书。

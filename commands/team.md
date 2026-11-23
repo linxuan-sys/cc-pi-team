@@ -1,7 +1,6 @@
 ---
 description: Pi mode: team or collaboration; plan, delegate, review
 argument-hint: [需求描述]
-disable-model-invocation: true
 ---
 
 # Pi 模式（团队 / 协同）

@@ -1,7 +1,6 @@
 ---
 description: Enable Pi mode and read the Pi plugin manual
 argument-hint: [需求描述]
-disable-model-invocation: true
 ---
 
 # 开启 Pi 模式

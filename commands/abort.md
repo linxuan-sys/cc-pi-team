@@ -1,6 +1,5 @@
 ---
 description: Abort the running Pi dispatch
-disable-model-invocation: true
 ---
 
 停掉当前跑着的 Pi。所有提问都用 `AskUserQuestion`。

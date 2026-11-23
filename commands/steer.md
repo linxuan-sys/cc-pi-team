@@ -1,7 +1,6 @@
 ---
 description: Steer the running Pi dispatch
 argument-hint: [纠偏指令]
-disable-model-invocation: true
 ---
 
 把纠偏指令发给正在跑的 Pi。所有提问都用 `AskUserQuestion`。

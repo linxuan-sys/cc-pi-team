@@ -1,7 +1,6 @@
 ---
 description: Exit Pi mode: stop the running headless Pi, optionally unbind
 argument-hint:
-disable-model-invocation: true
 ---
 
 退出 Pi 模式：停掉正在跑的 headless Pi，然后问你要不要解绑。所有提问都用 `AskUserQuestion`。

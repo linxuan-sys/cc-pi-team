@@ -1,7 +1,6 @@
 ---
 description: Connect this conversation to an existing Pi session
 argument-hint: [工作目录]
-disable-model-invocation: true
 ---
 
 把当前对话接到一条已有 Pi 会话。只写绑定：不启动 Pi、不派单、不切分支。
