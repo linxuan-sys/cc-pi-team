@@ -220,7 +220,7 @@ export const register: Register = on => {
 
   on('command.run', { command: 'pi-pane' }, async $ => {
     const { isPlaced } = await openPane($)
-    return { text: isPlaced ? 'Pi 输出面板已打开' : '这个界面不支持侧栏面板' }
+    return { text: isPlaced ? 'Pi output pane opened' : 'This surface does not support a side pane' }
   })
 
   on('command.run', { command: 'pi-unbind' }, async $ => {
@@ -230,7 +230,7 @@ export const register: Register = on => {
     selected = -1
     await update($, binds, () => ({ files: [], idx: -1 }))
     await clear($)
-    return { text: '绑定表已清空' }
+    return { text: 'All Pi bindings cleared' }
   })
 
   on('ui.scroll', { requestId: PANE }, ($, e, next) => {
