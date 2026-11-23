@@ -179,8 +179,9 @@ const PI_USAGE = `【Pi 插件使用说明】
 /pi:clear 清理当前工作区 .pi-* 临时文件；不动绑定、会话历史和 review 存档
 /pi-pane 打开右侧输出面板，查看当前 Pi 的实时输出和历史
 /pi-unbind 清空当前对话的所有 Pi 绑定，不停止正在跑的 Pi
-规则：一个工作树只能运行一个pi，一个 Pi 只归一个 Claude 对话；并行审各方向用 review/reviewN 运行目录。
-【启用规则】只要用户提到 Pi（例如“让 Pi 做…”“Pi 帮我…”），**先调用 /pi:start 命令**，再按它进入 Pi 模式；用户只说“子智能体”、或完全没提 Pi 时，不要启用、不要推断、不要自动派单。`
+【启用规则】只要用户提到 Pi（例如“让 Pi 做…”“Pi 帮我…”），**先调用 /pi:start 命令**，再按它进入 Pi 模式；
+pi模式是多智能体协作模式，但凡用户提到pi，优先去看
+用户只说“子智能体”、或完全没提 Pi 时，不要启用、不要推断、不要自动派单。`
 
 export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
