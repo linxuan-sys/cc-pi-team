@@ -66,7 +66,7 @@ fi
 
 **看到 `BOUND` 才算完成**；绑定是追加：一个 Claude 可绑多条 Pi，一条 Pi 只能归一个 Claude。`OCCUPIED` 说明这条会话已被另一个对话占用，先在那边解绑再回来；`NOT_FOUND` / `BIND_FAILED` 也贴出来并停。然后问一次（`AskUserQuestion`）「是否开启审查模式？」：
 
-- **是** → 先删当前对话的绑定（jq del 当前 sid，不要清空整表），再读 `${CLAUDE_PLUGIN_ROOT}/commands/review.md`，按它新建一个干净的 Pi 会话审查。
+- **是** → 不用删旧绑定，直接调用 `/pi:review` 命令，新建一个干净的 Pi 会话审查。
 - **否** → 回三行：
   - 已连接
   - `/pi-pane` 看这条会话的历史

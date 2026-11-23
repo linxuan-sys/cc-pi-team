@@ -4,7 +4,7 @@ description: Review code with Pi (read-only task), fix and re-review until it pa
 
 Pi 有自己的全部工具和 MCP；"工作区只读"只写在任务书里。`pi --mode rpc` 会自动执行工具，`--approve` 还会加载项目本地扩展/设置；陌生仓库先告诉用户。
 
-**消息发错 / 要重发**：如果用户说这条消息发错了、或者要重新发，并把消息给你，不要重新派单；直接读 `${CLAUDE_PLUGIN_ROOT}/commands/steer.md`，按它把这条消息 steer 给正在跑的 Pi。
+**消息发错 / 要重发**：如果用户说这条消息发错了、或者要重新发，并把消息给你，不要重新派单；直接调用 `/pi:steer <消息>`，把这条消息发给正在跑的 Pi。
 
 ## 工作区与范围
 
@@ -95,7 +95,7 @@ jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "${CLAUDE_PLUGIN_ROOT}/pi-
 用 `AskUserQuestion` 问「这次是新建 Pi 会话，还是绑定已有会话？」：
 
 - **新建** → 第二个参数传 `new`。
-- **绑定已有** → 读 `${CLAUDE_PLUGIN_ROOT}/commands/connect.md` 并照它执行；看到 `BOUND` 后回来，第二个参数传 `bind`。
+- **绑定已有** → 调用 `/pi:connect` 命令；看到 `BOUND` 后回来，第二个参数传 `bind`。
 
 陌生仓库先用 `AskUserQuestion` 确认「允许加载本地扩展吗？」（继续 / 取消），取消就停。
 

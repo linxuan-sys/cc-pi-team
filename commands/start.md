@@ -5,7 +5,7 @@ argument-hint: [需求描述]
 
 # 开启 Pi 模式
 
-当用户提到 Pi（“让 Pi 做…”“Pi 帮我…”）或输入 `/pi:start` 时，先读这份说明，再确认模式。**不要自动派单。**
+当用户提到 Pi（“让 Pi 做…”“Pi 帮我…”）或输入 `/pi:start` 时，先按这份说明，再确认模式。**不要自动派单。**
 
 **以用户的语言为主**：用户用中文就用中文，用户用英文就用英文；不要默认中文。
 
@@ -41,7 +41,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/pi-dispatch.sh" "<工作区>" "new" "start"
 
 | 命令 | 什么时候用 |
 |---|---|
-| `/pi:start` | 开启 Pi 模式，读这份说明 |
+| `/pi:start` | 开启 Pi 模式，查看说明 |
 | `/pi:team` | 让 Pi 写代码：团队或协同模式 |
 | `/pi:review` | 让 Pi 只读审查代码，Claude 修复 |
 | `/pi:connect` | 把当前对话接到一条已有 Pi 会话 |

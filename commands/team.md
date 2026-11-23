@@ -5,7 +5,7 @@ argument-hint: [需求描述]
 
 # Pi 模式（团队 / 协同）
 
-**消息发错 / 要重发**：如果用户说这条消息发错了、或者要重新发，并把消息给你，不要重新派单；直接读 `${CLAUDE_PLUGIN_ROOT}/commands/steer.md`，按它把这条消息 steer 给正在跑的 Pi。
+**消息发错 / 要重发**：如果用户说这条消息发错了、或者要重新发，并把消息给你，不要重新派单；直接调用 `/pi:steer <消息>`，把这条消息发给正在跑的 Pi。
 
 **所有提问都用 `AskUserQuestion`**，不要用文字问；拿到答案就在同一轮继续。
 
@@ -121,7 +121,7 @@ jq -e --arg sid "$CLAUDE_CODE_SESSION_ID" 'has($sid)' "${CLAUDE_PLUGIN_ROOT}/pi-
 用 `AskUserQuestion` 问「这次是新建 Pi 会话，还是绑定已有会话？」：
 
 - **新建** → 第二个参数传 `new`，直接启动一个新的 Pi 会话。
-- **绑定已有** → 读 `${CLAUDE_PLUGIN_ROOT}/commands/connect.md` 并照它执行（不要在这里重写列会话/绑定逻辑）；看到 `BOUND` 后回来，第二个参数传 `bind`。
+- **绑定已有** → 调用 `/pi:connect` 命令（不要在这里重写列会话/绑定逻辑）；看到 `BOUND` 后回来，第二个参数传 `bind`。
 
 陌生仓库先用 `AskUserQuestion` 确认「允许加载本地扩展吗？」（继续 / 取消），取消就停。
 
@@ -164,7 +164,7 @@ for d in pi-team/*/; do (cd "$d" && while [ ! -f .pi-done ] && kill -0 "$(cat .p
 - 每轮修改后，若用户同意建仓库/分支，只提交到本地（绝不 push）。用户不同意则不提交。
 - 小问题（拼写、格式、非核心架构问题）→ 自己改，报告注明「这部分由我修补」。
 - 通过后：用户同意建仓库/分支才提交到 `pi/team`（排除 `.pi-*`，提交信息 `fix: <简述>`，不要 `git add -A`）；没同意就跳过提交，直接汇报。
-- 收尾后，用 `AskUserQuestion` 问「是否开启审查模式？」：是 → 先删当前对话的绑定（jq del 当前 sid，不要清空整表），再读 `${CLAUDE_PLUGIN_ROOT}/commands/review.md`，按它新建一个干净的 Pi 会话审查；否 → 进第 7 节汇报。
+- 收尾后，用 `AskUserQuestion` 问「是否开启审查模式？」：是 → 不用删旧绑定，直接调用 `/pi:review` 命令，新建一个干净的 Pi 会话审查；否 → 进第 7 节汇报。
 
 ## 7. 汇报
 
