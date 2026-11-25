@@ -220,8 +220,8 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'pi-pane' }, async $ => {
-    const { isPlaced } = await openPane($)
-    return { text: isPlaced ? 'Pi output pane opened' : 'This surface does not support a side pane' }
+    await openPane($)
+    return {}
   })
 
   on('command.run', { command: 'pi-unbind' }, async $ => {
